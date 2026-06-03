@@ -43,7 +43,7 @@ app/core/config.py
 app/core/database.py
 app/models/
 app/db/schema.sql
-app/db/seed.py
+app/db/data.sql
 ```
 
 数据库设计策略：
@@ -78,13 +78,13 @@ app/db/            # 数据库结构说明和测试数据初始化
 
 ```text
 tests/integration/test_health.py
-tests/integration/test_database_seed.py
+tests/integration/test_database_sql.py
 ```
 
 当前验证命令：
 
 ```bash
-uv run python -m pytest tests\integration\test_health.py tests\integration\test_database_seed.py -v
+uv run python -m pytest tests\integration\test_health.py tests\integration\test_database_sql.py -v
 ```
 
 ## Agent 阶段计划技术栈

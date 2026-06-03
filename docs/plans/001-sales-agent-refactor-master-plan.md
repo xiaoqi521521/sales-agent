@@ -121,7 +121,7 @@ sales-agent/
       memory.py
       streaming.py
     db/
-      seed.py
+      data.sql
   tests/
     conftest.py
     unit/
@@ -221,7 +221,7 @@ uv run uvicorn app.main:app --reload
 - `app/models/sales_rep.py`
 - `app/models/product.py`
 - `app/models/sales_order.py`
-- `app/db/seed.py`
+- `app/db/data.sql`
 - `tests/integration/test_seed_data.py`
 
 **任务：**
