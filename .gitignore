@@ -1,0 +1,10 @@
+.env
+.venv/
+.idea/
+docs/reference/
+.pytest_cache/
+__pycache__/
+*.py[cod]
+*.sqlite
+*.sqlite3
+sales_agent.db
