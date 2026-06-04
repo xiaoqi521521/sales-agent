@@ -395,11 +395,11 @@ uv run pytest tests/unit/test_agent_prompt.py tests/integration/test_agent_memor
 
 **任务：**
 
-- [ ] 实现 `POST /api/v1/agent/chat`。
-- [ ] 实现 `POST /api/v1/agent/chat/stream`。
-- [ ] 请求体包含 `session_id`、`message`、可选用户上下文。
-- [ ] 响应体包含回答文本、工具调用摘要、引用的业务数据摘要。
-- [ ] 流式接口使用 SSE 或 chunked response，保持错误事件格式统一。
+- [x] 实现 `POST /api/v1/agent/chat`。
+- [x] 实现 `POST /api/v1/agent/chat/stream`。
+- [x] 请求体包含 `session_id`、`message`、可选用户上下文。
+- [x] 响应体包含回答文本、工具调用摘要、引用的业务数据摘要。
+- [x] 流式接口使用 SSE，保持错误事件格式统一。
 
 **验收命令：**
 

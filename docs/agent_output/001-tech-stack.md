@@ -1,6 +1,6 @@
 # 项目技术栈说明
 
-本文档说明智能销售 Agent 重构项目计划采用的技术栈。当前项目已完成 FastAPI 骨架、MySQL 表结构与测试数据、SQLAlchemy 模型、Repository 层、SalesQueryService、销售 DTO/schemas、5 个 LangChain 工具，以及 Agent Runtime 与多轮记忆。认证、缓存等依赖会在对应阶段再引入。
+本文档说明智能销售 Agent 重构项目计划采用的技术栈。当前项目已完成 FastAPI 骨架、MySQL 表结构与测试数据、SQLAlchemy 模型、Repository 层、SalesQueryService、销售 DTO/schemas、5 个 LangChain 工具、Agent Runtime、多轮记忆、同步聊天 API 和 SSE 流式聊天 API。认证、缓存等依赖会在对应阶段再引入。
 
 ## 核心语言与包管理
 
@@ -11,6 +11,7 @@
 
 - FastAPI：后端 API 框架，负责 HTTP 接口、依赖注入、请求校验和响应返回。
 - Uvicorn：ASGI 应用服务器，用于本地启动和后续部署运行。
+- StreamingResponse：FastAPI/Starlette 提供的流式响应能力，当前用于 `text/event-stream` SSE 输出。
 
 当前启动入口：
 
@@ -89,6 +90,8 @@ tests/integration/test_sales_query_service.py
 tests/integration/test_sales_tools.py
 tests/integration/test_agent_memory.py
 tests/unit/test_agent_prompt.py
+tests/integration/test_agent_api.py
+tests/integration/test_agent_streaming.py
 ```
 
 当前验证命令：
@@ -109,6 +112,7 @@ uv run python -m pytest tests\integration -v
 ```text
 app/tools/
 app/agent/
+app/api/v1/endpoints/agent.py
 ```
 
 Agent Runtime 策略：
@@ -118,6 +122,8 @@ Agent Runtime 策略：
 - 使用 `config={"configurable": {"thread_id": session_id}, "recursion_limit": 10}` 标识会话并限制 Agent 循环步数。
 - 使用 `sa_chat_memory` 表保存最近 20 条用户消息、关键工具结果和 AI 回复快照；每轮调用前从 MySQL 加载 user/assistant 历史作为上下文，测试中通过 fake agent 验证记忆链路，不调用真实 LLM。
 - `checkpointer` 仅作为 runtime 可注入扩展点保留，默认不启用内存 checkpointer。
+- 同步 API `POST /api/v1/agent/chat` 返回完整回答、耗时、工具调用摘要和数据引用占位。
+- 流式 API `POST /api/v1/agent/chat/stream` 使用 SSE，事件类型包括 `token`、`tool`、`done`、`error`，事件数据统一使用 JSON。
 
 ## 认证与权限阶段计划技术栈
 
