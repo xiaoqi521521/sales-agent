@@ -55,3 +55,12 @@ CREATE TABLE IF NOT EXISTS sa_sales_order (
     KEY idx_order_date (order_date),
     KEY idx_status (status)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='销售订单';
+
+CREATE TABLE IF NOT EXISTS sa_chat_memory (
+    id BIGINT NOT NULL AUTO_INCREMENT,
+    session_id VARCHAR(100) NOT NULL COMMENT '会话 ID',
+    messages LONGTEXT NOT NULL COMMENT '序列化的消息列表（JSON）',
+    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    PRIMARY KEY (id),
+    UNIQUE KEY uk_session (session_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='对话记忆持久化';

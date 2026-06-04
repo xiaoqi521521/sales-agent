@@ -1,6 +1,6 @@
 # 项目技术栈说明
 
-本文档说明智能销售 Agent 重构项目计划采用的技术栈。当前项目已完成 FastAPI 骨架、MySQL 表结构与测试数据、SQLAlchemy 模型、Repository 层、SalesQueryService、销售 DTO/schemas 和 5 个 LangChain 工具。Agent 运行时、认证、缓存等依赖会在对应阶段再引入。
+本文档说明智能销售 Agent 重构项目计划采用的技术栈。当前项目已完成 FastAPI 骨架、MySQL 表结构与测试数据、SQLAlchemy 模型、Repository 层、SalesQueryService、销售 DTO/schemas、5 个 LangChain 工具，以及 Agent Runtime 与多轮记忆。认证、缓存等依赖会在对应阶段再引入。
 
 ## 核心语言与包管理
 
@@ -68,7 +68,7 @@ app/schemas/       # Pydantic DTO、请求对象、响应对象
 app/repositories/  # 数据访问封装
 app/services/      # 业务逻辑和销售分析服务
 app/tools/         # LangChain 工具
-app/agent/         # Agent 编排、提示词、记忆、流式输出
+app/agent/         # Agent 编排、提示词、记忆、运行时；流式输出后续补齐
 app/db/            # 数据库结构说明和测试数据初始化
 ```
 
@@ -87,6 +87,8 @@ tests/integration/test_model_mapping.py
 tests/integration/test_sales_repositories.py
 tests/integration/test_sales_query_service.py
 tests/integration/test_sales_tools.py
+tests/integration/test_agent_memory.py
+tests/unit/test_agent_prompt.py
 ```
 
 当前验证命令：
@@ -99,17 +101,23 @@ uv run python -m pytest tests\integration -v
 
 - LangChain：已引入，用于 `@tool(args_schema=...)` 创建销售分析工具。
 - langchain-core：随 LangChain 引入，提供 BaseTool 等核心抽象。
+- langchain-openai：已引入，用于通过 OpenAI 兼容接口接入 `.env` 中配置的模型。
+- LangChain Agent runtime：当前使用 `thread_id` 标识会话，并以 MySQL `sa_chat_memory` 作为默认会话记忆来源。
 
-以下依赖尚未在当前阶段引入，会在实现 Agent 运行时再加入：
-
-- langchain-openai：OpenAI 兼容模型接入。
-
-计划使用位置：
+当前使用位置：
 
 ```text
 app/tools/
 app/agent/
 ```
+
+Agent Runtime 策略：
+
+- 使用 LangChain 官方推荐的 `create_agent(...)` 绑定 5 个销售工具。
+- 使用 `init_chat_model(model_provider="openai", base_url=..., api_key=...)` 接入 OpenAI 兼容模型，默认读取 `.env` 中的 `OPENAI_MODEL`、`OPENAI_BASE_URL`、`OPENAI_API_KEY`。
+- 使用 `config={"configurable": {"thread_id": session_id}, "recursion_limit": 10}` 标识会话并限制 Agent 循环步数。
+- 使用 `sa_chat_memory` 表保存最近 20 条用户消息、关键工具结果和 AI 回复快照；每轮调用前从 MySQL 加载 user/assistant 历史作为上下文，测试中通过 fake agent 验证记忆链路，不调用真实 LLM。
+- `checkpointer` 仅作为 runtime 可注入扩展点保留，默认不启用内存 checkpointer。
 
 ## 认证与权限阶段计划技术栈
 
@@ -144,7 +152,7 @@ app/services/cache_service.py
 
 - 前端框架：本轮先实现后端和 Agent，不开发前端页面。
 - RAG 向量库：当前参考文献只是开发期资料，不作为运行时知识库；因此暂不引入 Chroma、FAISS、Pinecone。
-- LangGraph：当前优先使用 LangChain tool-calling Agent；除非后续流程编排明显复杂化，否则不提前引入。
+- 自定义 LangGraph 工作流：当前不手写 StateGraph 工作流；除非后续流程编排明显复杂化，否则不提前引入自定义 LangGraph 图。
 - 生产部署栈：暂不引入 Docker、Kubernetes、CI/CD、云监控。
 
 ## 当前已安装依赖
@@ -161,6 +169,7 @@ aiosqlite
 alembic
 asyncmy
 langchain
+langchain-openai
 ```
 
 开发依赖：

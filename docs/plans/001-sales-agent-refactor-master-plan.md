@@ -359,11 +359,12 @@ uv run python -m pytest tests/integration/test_sales_tools.py -v
 
 **任务：**
 
-- [ ] 设计 system prompt，明确 Agent 是销售数据分析助手。
-- [ ] 绑定 5 个工具到 LangChain Agent。
-- [ ] 实现 `session_id` 维度的消息历史。
-- [ ] 将用户消息、AI 回复和关键工具调用结果写入记忆。
-- [ ] 实现基础追问场景：第二轮不重复指定时间或区域时，能利用上一轮上下文。
+- [x] 设计 system prompt，明确 Agent 是销售数据分析助手。
+- [x] 绑定 5 个工具到 LangChain Agent。
+- [x] 实现 `session_id` 维度的消息历史。
+- [x] 将用户消息、AI 回复和关键工具调用结果写入记忆。
+- [x] 实现基础追问场景：第二轮不重复指定时间或区域时，能利用上一轮上下文。
+- [x] Python 版使用 LangChain `create_agent` + `thread_id` 标识会话，默认从 MySQL `sa_chat_memory` 加载并保存最近 20 条会话消息快照；`checkpointer` 仅作为可注入扩展点保留，默认不启用内存记忆。
 
 **验收命令：**
 

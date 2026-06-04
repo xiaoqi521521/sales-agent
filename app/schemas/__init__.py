@@ -1,3 +1,4 @@
+from app.schemas.agent import AgentChatRequest, AgentChatResponse
 from app.schemas.sales import (
     AnomalyDTO,
     MonthlyTrendDTO,
@@ -9,6 +10,8 @@ from app.schemas.sales import (
 )
 
 __all__ = [
+    "AgentChatRequest",
+    "AgentChatResponse",
     "AnomalyDTO",
     "MonthlyTrendDTO",
     "OrderQueryParams",
