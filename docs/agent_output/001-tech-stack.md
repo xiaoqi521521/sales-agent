@@ -1,6 +1,6 @@
 # 项目技术栈说明
 
-本文档说明智能销售 Agent 重构项目计划采用的技术栈。当前项目处于 FastAPI 骨架初始化阶段，部分依赖已经引入，Agent、认证、缓存等依赖会在对应阶段再引入。
+本文档说明智能销售 Agent 重构项目计划采用的技术栈。当前项目已完成 FastAPI 骨架、MySQL 表结构与测试数据、SQLAlchemy 模型、Repository 层、SalesQueryService、销售 DTO/schemas 和 5 个 LangChain 工具。Agent 运行时、认证、缓存等依赖会在对应阶段再引入。
 
 ## 核心语言与包管理
 
@@ -33,8 +33,8 @@ app/core/config.py
 
 - SQLAlchemy Async：异步 ORM 和数据库访问层。
 - MySQL：当前项目数据库，连接本机 `127.0.0.1:3306`。
-- asyncmy：计划使用的 MySQL 异步驱动，实际连接 MySQL 前需要引入。
-- aiosqlite：仅保留给测试或临时 SQLite 场景使用。
+- asyncmy：MySQL 异步驱动，已引入，用于 SQLAlchemy Async 连接 MySQL。
+- aiosqlite：仅用于测试中的内存 SQLite 场景，不作为业务运行时数据源。
 - Alembic：数据库迁移工具，后续用于管理表结构变更。
 
 当前数据库相关文件：
@@ -42,6 +42,9 @@ app/core/config.py
 ```text
 app/core/database.py
 app/models/
+app/repositories/
+app/services/
+app/schemas/
 app/db/schema.sql
 app/db/data.sql
 ```
@@ -50,7 +53,8 @@ app/db/data.sql
 
 - 当前开发数据库使用本地 MySQL。
 - 数据库连接通过根目录 `.env` 的 `DATABASE_URL` 配置。
-- 测试可继续使用内存 SQLite，避免依赖本地 MySQL 状态。
+- 集成测试中的 Service/Repository 行为测试可使用内存 SQLite，避免依赖本地 MySQL 状态。
+- MySQL 初始化采用直接执行 `schema.sql` 和 `data.sql` 的方式，不再通过 Python seed 脚本导入。
 
 ## 项目分层
 
@@ -74,25 +78,30 @@ app/db/            # 数据库结构说明和测试数据初始化
 - pytest-asyncio：异步测试支持。
 - httpx：FastAPI 接口集成测试客户端。
 
-当前基础测试：
+当前集成测试：
 
 ```text
 tests/integration/test_health.py
 tests/integration/test_database_sql.py
+tests/integration/test_model_mapping.py
+tests/integration/test_sales_repositories.py
+tests/integration/test_sales_query_service.py
+tests/integration/test_sales_tools.py
 ```
 
 当前验证命令：
 
 ```bash
-uv run python -m pytest tests\integration\test_health.py tests\integration\test_database_sql.py -v
+uv run python -m pytest tests\integration -v
 ```
 
-## Agent 阶段计划技术栈
+## LangChain 工具与 Agent 技术栈
 
-以下依赖尚未在当前阶段引入，会在实现 Agent 工具和运行时再加入：
+- LangChain：已引入，用于 `@tool(args_schema=...)` 创建销售分析工具。
+- langchain-core：随 LangChain 引入，提供 BaseTool 等核心抽象。
 
-- LangChain：Agent 编排和工具调用框架。
-- langchain-core：核心消息、工具、Runnable 抽象。
+以下依赖尚未在当前阶段引入，会在实现 Agent 运行时再加入：
+
 - langchain-openai：OpenAI 兼容模型接入。
 
 计划使用位置：
@@ -150,12 +159,8 @@ python-dotenv
 sqlalchemy[asyncio]
 aiosqlite
 alembic
-```
-
-待引入数据库驱动：
-
-```text
 asyncmy
+langchain
 ```
 
 开发依赖：

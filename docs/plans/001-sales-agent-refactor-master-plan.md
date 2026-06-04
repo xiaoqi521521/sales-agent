@@ -6,7 +6,7 @@
 
 **架构：** 后端采用 FastAPI 分层架构，API 层只处理协议与依赖注入，Service 层承载业务查询与分析，Repository 层封装数据库访问，LangChain Tools 调用 Service 层能力，Agent 层负责工具编排、多轮对话和最终回答。参考文献只作为开发期资料库，不进入业务运行时。
 
-**Tech Stack：** Python 3.12、FastAPI、Uvicorn、Pydantic Settings、SQLAlchemy Async、Alembic、SQLite/PostgreSQL 兼容设计、LangChain、pytest、httpx、可选 Redis。
+**Tech Stack：** Python 3.12、FastAPI、Uvicorn、Pydantic Settings、SQLAlchemy Async、MySQL、asyncmy、Alembic、LangChain、pytest、pytest-asyncio、httpx、可选 Redis。SQLite 仅用于测试中的内存数据库场景。
 
 ---
 
@@ -98,7 +98,11 @@ sales-agent/
       anomaly.py
       common.py
     repositories/
-      sales_repository.py
+      base_repository.py
+      sales_region_repository.py
+      sales_rep_repository.py
+      product_repository.py
+      sales_order_repository.py
       chat_memory_repository.py
       user_repository.py
     services/
@@ -111,8 +115,8 @@ sales-agent/
     tools/
       sales_query_tool.py
       sales_summary_tool.py
-      trend_analysis_tool.py
-      chart_generation_tool.py
+      sales_trend_tool.py
+      chart_generator_tool.py
       anomaly_detection_tool.py
       registry.py
     agent/
@@ -121,6 +125,7 @@ sales-agent/
       memory.py
       streaming.py
     db/
+      schema.sql
       data.sql
   tests/
     conftest.py
@@ -155,7 +160,7 @@ sales-agent/
 - [ ] 明确 Python 版项目目标、能力边界和不做事项。
 - [ ] 定义 LangChain4j 到 LangChain/FastAPI 的映射关系。
 - [ ] 确定 API 路径、请求响应结构、错误返回格式。
-- [ ] 确定开发阶段默认数据库为 SQLite，结构兼容 PostgreSQL。
+- [x] 确定开发阶段默认数据库为本地 MySQL，测试中可使用内存 SQLite 验证 Service/Repository 行为。
 - [ ] 确定认证、缓存、流式输出作为后续增强阶段接入，不阻塞基础 Agent 跑通。
 
 **验收：**
@@ -185,11 +190,11 @@ sales-agent/
 
 **任务：**
 
-- [ ] 增加应用包结构 `app/`。
-- [ ] 增加配置类，读取 `.env`，提供 `APP_NAME`、`API_V1_PREFIX`、`DATABASE_URL`、`OPENAI_API_KEY` 等配置。
-- [ ] 增加健康检查接口 `GET /api/v1/health`。
+- [x] 增加应用包结构 `app/`。
+- [x] 增加配置类，读取 `.env`，提供 `APP_NAME`、`API_V1_PREFIX`、`DATABASE_URL`、`OPENAI_API_KEY` 等配置。
+- [x] 增加健康检查接口 `GET /api/v1/health`。
 - [ ] 增加统一异常响应模型。
-- [ ] 配置测试客户端和基础集成测试。
+- [x] 配置测试客户端和基础集成测试。
 - [ ] 移除或保留根目录 `main.py` 作为兼容入口，实际应用入口迁移到 `app/main.py`。
 
 **验收命令：**
@@ -221,27 +226,30 @@ uv run uvicorn app.main:app --reload
 - `app/models/sales_rep.py`
 - `app/models/product.py`
 - `app/models/sales_order.py`
+- `app/db/schema.sql`
 - `app/db/data.sql`
-- `tests/integration/test_seed_data.py`
+- `tests/integration/test_database_sql.py`
+- `tests/integration/test_model_mapping.py`
+- `tests/integration/test_sales_repositories.py`
 
 **任务：**
 
-- [ ] 实现异步 SQLAlchemy engine、session dependency 和 Base。
-- [ ] 建立 `sales_region`、`sales_rep`、`product`、`sales_order` 模型。
-- [ ] 保留参考文献中的核心字段、关系和索引意图。
-- [ ] 编写 seed 脚本，生成可覆盖查询、统计、趋势、图表和异常预警的数据。
-- [ ] 为测试环境提供内存 SQLite 或临时 SQLite 数据库。
+- [x] 实现异步 SQLAlchemy engine、session dependency 和 Base。
+- [x] 建立 `sa_sales_region`、`sa_sales_rep`、`sa_product`、`sa_sales_order` 模型。
+- [x] 保留参考文献中的核心字段、默认值和索引意图；ORM 不额外声明参考 DDL 中不存在的外键约束。
+- [x] 使用 `schema.sql` 和 `data.sql` 直接初始化 MySQL 表结构与测试数据。
+- [x] 为测试环境提供内存 SQLite 数据库，验证模型、Repository 和 Service 行为。
 
 **验收命令：**
 
 ```bash
-uv run pytest tests/integration/test_seed_data.py -v
+uv run python -m pytest tests/integration/test_database_sql.py tests/integration/test_model_mapping.py tests/integration/test_sales_repositories.py -v
 ```
 
 **完成标准：**
 
 - 数据库表能创建。
-- seed 后四类核心数据均存在。
+- SQL 导入后四类核心数据均存在。
 - 订单数据覆盖多大区、多销售员、多产品、多月份和异常场景。
 
 ---
@@ -254,25 +262,30 @@ uv run pytest tests/integration/test_seed_data.py -v
 
 **主要文件：**
 
-- `app/repositories/sales_repository.py`
+- `app/repositories/base_repository.py`
+- `app/repositories/sales_region_repository.py`
+- `app/repositories/sales_rep_repository.py`
+- `app/repositories/product_repository.py`
+- `app/repositories/sales_order_repository.py`
 - `app/schemas/sales.py`
 - `app/services/sales_query_service.py`
-- `tests/unit/test_sales_query_service.py`
-- `tests/integration/test_sales_repository.py`
+- `tests/integration/test_sales_query_service.py`
+- `tests/integration/test_sales_repositories.py`
 
 **任务：**
 
-- [ ] 定义查询条件 schema：时间范围、大区、销售员、产品、品类、订单状态。
-- [ ] 实现订单明细查询。
-- [ ] 实现销售额、订单数、客单价等汇总。
-- [ ] 实现按大区、销售员、产品的排名。
-- [ ] 实现同比、环比和月度趋势基础计算。
-- [ ] 保证所有查询使用 SQLAlchemy 参数绑定，不拼接原生 SQL。
+- [x] 定义销售 DTO/schemas，并与参考项目 `docs/reference/DTO` 中的 DTO 字段语义对齐。
+- [x] 实现订单摘要查询。
+- [x] 实现销售额汇总。
+- [x] 实现按大区、销售员、产品的排名。
+- [x] 实现增长率计算和月度趋势基础查询。
+- [x] 保证所有查询使用 SQLAlchemy 表达式和参数绑定，不拼接不可信 SQL。
+- [ ] 后续工具层如需要更复杂的组合过滤、客单价、同比/环比完整周期计算，可在 Service 层继续扩展。
 
 **验收命令：**
 
 ```bash
-uv run pytest tests/unit/test_sales_query_service.py tests/integration/test_sales_repository.py -v
+uv run python -m pytest tests/integration/test_sales_query_service.py tests/integration/test_sales_repositories.py -v
 ```
 
 **完成标准：**
@@ -293,30 +306,30 @@ uv run pytest tests/unit/test_sales_query_service.py tests/integration/test_sale
 
 - `app/tools/sales_query_tool.py`
 - `app/tools/sales_summary_tool.py`
-- `app/tools/trend_analysis_tool.py`
-- `app/tools/chart_generation_tool.py`
+- `app/tools/sales_trend_tool.py`
+- `app/tools/chart_generator_tool.py`
 - `app/tools/anomaly_detection_tool.py`
+- `app/tools/schemas.py`
+- `app/tools/formatting.py`
 - `app/tools/registry.py`
-- `app/schemas/chart.py`
-- `app/schemas/anomaly.py`
-- `app/services/chart_service.py`
-- `app/services/anomaly_service.py`
-- `tests/unit/test_sales_tools.py`
+- `tests/integration/test_sales_tools.py`
 
 **任务：**
 
-- [ ] 实现销售数据查询工具。
-- [ ] 实现统计汇总与排名工具。
-- [ ] 实现同比环比与趋势分析工具。
-- [ ] 实现 ECharts 数据生成工具。
-- [ ] 实现异常数据告警工具。
-- [ ] 为每个工具编写明确 description，覆盖业务关键词和适用边界。
-- [ ] 统一工具返回结构，包含 `success`、`data`、`message`、`metadata`。
+- [x] 使用 LangChain 官方推荐的 `@tool(args_schema=...)` 创建工具，参数 schema 使用 Pydantic。
+- [x] 实现销售数据查询工具。
+- [x] 实现统计汇总与排名工具。
+- [x] 实现同比环比与趋势分析工具。
+- [x] 实现 ECharts 数据生成工具。
+- [x] 实现异常数据告警工具。
+- [x] 为每个工具编写明确 description，覆盖业务关键词和适用边界。
+- [x] 文本类工具返回结构化可读文本，图表工具返回 `CHART_JSON:{...}`，与参考文献返回设计对齐。
+- [x] 通过 `app/tools/registry.py` 暴露 5 个工具，供后续 Agent runtime 统一绑定。
 
 **验收命令：**
 
 ```bash
-uv run pytest tests/unit/test_sales_tools.py -v
+uv run python -m pytest tests/integration/test_sales_tools.py -v
 ```
 
 **完成标准：**
