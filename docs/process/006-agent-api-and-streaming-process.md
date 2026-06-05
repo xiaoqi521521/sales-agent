@@ -30,12 +30,12 @@
 
    新增 `tests/integration/test_agent_api.py`，通过 FastAPI dependency override 注入 fake runtime，验证：
 
-   - `POST /api/v1/agent/chat` 返回 `sessionId`、`reply`、`durationMs`、`toolCalls`、`dataReferences`。
+   - `POST /agent/chat` 返回 `sessionId`、`reply`、`durationMs`、`toolCalls`、`dataReferences`。
    - 请求体为空时返回 422。
 
    新增 `tests/integration/test_agent_streaming.py`，验证：
 
-   - `POST /api/v1/agent/chat/stream` 返回 `text/event-stream`。
+   - `POST /agent/chat/stream` 返回 `text/event-stream`。
    - SSE 事件包含 `token`、`tool`、`done`。
    - runtime 异常时返回统一 `error` 事件。
 
@@ -66,10 +66,10 @@
    - `POST /agent/chat`
    - `POST /agent/chat/stream`
 
-   再由 `app/api/v1/router.py` 挂载到 `/api/v1` 下，最终路径为：
+   再由 `app/api/v1/router.py` 挂载到应用根路径下，最终路径为：
 
-   - `POST /api/v1/agent/chat`
-   - `POST /api/v1/agent/chat/stream`
+   - `POST /agent/chat`
+   - `POST /agent/chat/stream`
 
 5. 创建 runtime dependency
 

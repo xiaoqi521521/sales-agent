@@ -18,6 +18,7 @@ class FakeStreamingRuntime:
         yield AgentStreamEvent(
             event="done",
             data={
+                "sessionId": session_id,
                 "reply": f"{session_id}:{message}",
                 "durationMs": 12,
                 "toolCalls": [{"name": "query_sales_orders", "summary": "查询订单完成"}],
@@ -39,7 +40,7 @@ async def test_agent_stream_endpoint_returns_sse_events():
 
     async with AsyncClient(transport=transport, base_url="http://test") as client:
         response = await client.post(
-            "/api/v1/agent/chat/stream",
+            "/agent/chat/stream",
             json={"sessionId": "stream-session-001", "message": "近6个月趋势"},
             headers={"accept": "text/event-stream"},
         )
@@ -53,6 +54,7 @@ async def test_agent_stream_endpoint_returns_sse_events():
     assert 'data: {"content":"你好"}' in body
     assert "event: tool" in body
     assert "event: done" in body
+    assert '"sessionId":"stream-session-001"' in body
     assert '"reply":"stream-session-001:近6个月趋势"' in body
 
 
@@ -63,7 +65,7 @@ async def test_agent_stream_endpoint_returns_uniform_error_event():
 
     async with AsyncClient(transport=transport, base_url="http://test") as client:
         response = await client.post(
-            "/api/v1/agent/chat/stream",
+            "/agent/chat/stream",
             json={"sessionId": "stream-session-err", "message": "会失败"},
         )
 

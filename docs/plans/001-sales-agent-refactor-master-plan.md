@@ -191,8 +191,8 @@ sales-agent/
 **任务：**
 
 - [x] 增加应用包结构 `app/`。
-- [x] 增加配置类，读取 `.env`，提供 `APP_NAME`、`API_V1_PREFIX`、`DATABASE_URL`、`OPENAI_API_KEY` 等配置。
-- [x] 增加健康检查接口 `GET /api/v1/health`。
+- [x] 增加配置类，读取 `.env`，提供 `APP_NAME`、`DATABASE_URL`、`OPENAI_API_KEY` 等配置。
+- [x] 增加健康检查接口 `GET /health`。
 - [ ] 增加统一异常响应模型。
 - [x] 配置测试客户端和基础集成测试。
 - [ ] 移除或保留根目录 `main.py` 作为兼容入口，实际应用入口迁移到 `app/main.py`。
@@ -208,7 +208,7 @@ uv run uvicorn app.main:app --reload
 
 - 健康检查返回应用名、版本、状态。
 - 测试客户端能不依赖真实外部服务运行。
-- 应用入口清晰，后续 API 都挂载到 `/api/v1`。
+- 应用入口清晰，后续 API 直接从根路径挂载，例如 `/agent/chat`。
 
 ---
 
@@ -395,8 +395,8 @@ uv run pytest tests/unit/test_agent_prompt.py tests/integration/test_agent_memor
 
 **任务：**
 
-- [x] 实现 `POST /api/v1/agent/chat`。
-- [x] 实现 `POST /api/v1/agent/chat/stream`。
+- [x] 实现 `POST /agent/chat`。
+- [x] 实现 `POST /agent/chat/stream`。
 - [x] 请求体包含 `session_id`、`message`、可选用户上下文。
 - [x] 响应体包含回答文本、工具调用摘要、引用的业务数据摘要。
 - [x] 流式接口使用 SSE，保持错误事件格式统一。

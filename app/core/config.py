@@ -7,7 +7,6 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 class Settings(BaseSettings):
     app_name: str = "sales-agent"
     app_version: str = "0.1.0"
-    api_v1_prefix: str = "/api/v1"
     database_url: str = "sqlite+aiosqlite:///./sales_agent.db"
     database_echo: bool = False
     cors_origins: list[str] = Field(default_factory=lambda: ["*"])

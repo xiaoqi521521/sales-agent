@@ -26,7 +26,7 @@ async def test_agent_chat_endpoint_returns_reference_response_shape():
 
     async with AsyncClient(transport=transport, base_url="http://test") as client:
         response = await client.post(
-            "/api/v1/agent/chat",
+            "/agent/chat",
             json={"sessionId": "api-session-001", "message": "你好"},
         )
 
@@ -53,7 +53,7 @@ async def test_agent_chat_endpoint_validates_request_body():
 
     async with AsyncClient(transport=transport, base_url="http://test") as client:
         response = await client.post(
-            "/api/v1/agent/chat",
+            "/agent/chat",
             json={"sessionId": "", "message": ""},
         )
 

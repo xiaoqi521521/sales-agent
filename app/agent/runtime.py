@@ -140,7 +140,7 @@ class SalesAgentRuntime:
                 answer,
                 tool_messages=tool_messages,
             )
-            yield self._done_event(answer, tool_messages, duration_ms)
+            yield self._done_event(normalized_session_id, answer, tool_messages, duration_ms)
             return
 
         # 流式模式：同时接收 messages（逐 token）和 updates（节点完成事件）
@@ -195,7 +195,7 @@ class SalesAgentRuntime:
             answer,
             tool_messages=tool_messages,
         )
-        yield self._done_event(answer, tool_messages, duration_ms)
+        yield self._done_event(normalized_session_id, answer, tool_messages, duration_ms)
 
     async def _build_agent_input(self, session_id: str, message: str) -> tuple[dict[str, Any], dict[str, Any]]:
         """构建 Agent 的输入 payload 和运行 config。
@@ -310,13 +310,20 @@ class SalesAgentRuntime:
             return content
         return ""
 
-    def _done_event(self, reply: str, tool_messages: list[StoredMessage], duration_ms: int) -> "AgentStreamEvent":
+    def _done_event(
+        self,
+        session_id: str,
+        reply: str,
+        tool_messages: list[StoredMessage],
+        duration_ms: int,
+    ) -> "AgentStreamEvent":
         """构建流式结束事件（event="done"），携带完整回答、工具调用摘要和耗时。"""
         from app.agent.streaming import AgentStreamEvent
 
         return AgentStreamEvent(
             event="done",
             data={
+                "sessionId": session_id,                  # 会话 ID，与同步接口响应保持一致
                 "reply": reply,                        # AI 最终完整回答
                 "durationMs": duration_ms,             # 本次对话总耗时（毫秒）
                 "toolCalls": [                         # 本轮所有工具调用摘要

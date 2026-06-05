@@ -122,8 +122,8 @@ Agent Runtime 策略：
 - 使用 `config={"configurable": {"thread_id": session_id}, "recursion_limit": 10}` 标识会话并限制 Agent 循环步数。
 - 使用 `sa_chat_memory` 表保存最近 20 条用户消息、关键工具结果和 AI 回复快照；每轮调用前从 MySQL 加载 user/assistant 历史作为上下文，测试中通过 fake agent 验证记忆链路，不调用真实 LLM。
 - `checkpointer` 仅作为 runtime 可注入扩展点保留，默认不启用内存 checkpointer。
-- 同步 API `POST /api/v1/agent/chat` 返回完整回答、耗时、工具调用摘要和数据引用占位。
-- 流式 API `POST /api/v1/agent/chat/stream` 使用 SSE，事件类型包括 `token`、`tool`、`done`、`error`，事件数据统一使用 JSON。
+- 同步 API `POST /agent/chat` 返回完整回答、耗时、工具调用摘要和数据引用占位。
+- 流式 API `POST /agent/chat/stream` 使用 SSE，事件类型包括 `token`、`tool`、`done`、`error`，事件数据统一使用 JSON。
 
 ## 认证与权限阶段计划技术栈
 
