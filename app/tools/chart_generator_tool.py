@@ -5,7 +5,16 @@ from langchain.tools import tool
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.services.sales_query_service import SalesQueryService
-from app.tools.formatting import blank_to_none, clamp, date_error_message, parse_required_range
+from app.tools.formatting import (
+    blank_to_none,
+    clamp,
+    date_error_message,
+    parse_required_range,
+    tool_empty_data,
+    tool_execution_error,
+    tool_invalid_argument,
+    tool_unknown_entity,
+)
 from app.tools.schemas import SalesChartInput
 
 
@@ -26,14 +35,18 @@ def create_chart_generator_tool(session: AsyncSession, service: SalesQueryServic
                 return await _line_chart(service, session, today, months, blank_to_none(region_name), title)
             start, end = parse_required_range(start_date, end_date)
             if chart_type == "bar":
+                if dimension not in {"region", "rep"}:
+                    return tool_invalid_argument("柱状图支持的维度为 region 或 rep。")
                 return await _bar_chart(service, session, dimension, start, end, title)
             if chart_type == "pie":
+                if dimension not in {"region", "category"}:
+                    return tool_invalid_argument("饼图支持的维度为 region 或 category。")
                 return await _pie_chart(service, session, dimension, start, end, title)
-            return "未知图表类型，请使用 line、bar 或 pie"
+            return tool_invalid_argument("未知图表类型，请使用 line、bar 或 pie。")
         except Exception as exc:
             if isinstance(exc, ValueError):
                 return date_error_message(exc)
-            return "生成图表数据时出现问题，请稍后重试"
+            return tool_execution_error()
 
     return generate_sales_chart
 
@@ -41,10 +54,10 @@ def create_chart_generator_tool(session: AsyncSession, service: SalesQueryServic
 async def _line_chart(service: SalesQueryService, session: AsyncSession, today, months: int, region_name: str | None, title: str | None):
     region_id = await service.get_region_id_by_name(session, region_name) if region_name else None
     if region_name and region_id is None:
-        return f"未找到大区：{region_name}"
+        return tool_unknown_entity("大区", region_name)
     data = await service.query_monthly_trend(session, region_id, clamp(months, 1, 24), today=today)
     if not data:
-        return "暂无数据，无法生成图表"
+        return tool_empty_data("暂无销售趋势数据，无法生成图表。")
     option = {
         "title": {"text": title or "销售趋势"},
         "tooltip": {"trigger": "axis"},
@@ -72,7 +85,7 @@ async def _bar_chart(service: SalesQueryService, session: AsyncSession, dimensio
         names = [row.region_name for row in rows]
         values = [int(row.total_amount) for row in rows]
     if not names:
-        return "暂无数据，无法生成图表"
+        return tool_empty_data(f"在 {start} 至 {end} 期间，暂无销售对比数据，无法生成图表。")
     option = {
         "title": {"text": title or "销售对比"},
         "tooltip": {"trigger": "axis"},
@@ -94,7 +107,7 @@ async def _pie_chart(service: SalesQueryService, session: AsyncSession, dimensio
         regions = await service.query_region_ranking(session, start, end)
         data = [{"name": region.region_name, "value": int(region.total_amount)} for region in regions]
     if not data:
-        return "暂无数据，无法生成图表"
+        return tool_empty_data(f"在 {start} 至 {end} 期间，暂无销售占比数据，无法生成图表。")
     option = {
         "title": {"text": title or "销售占比", "left": "center"},
         "tooltip": {"trigger": "item", "formatter": "{b}: {c} ({d}%)"},

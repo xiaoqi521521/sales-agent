@@ -11,6 +11,9 @@ from app.tools.formatting import (
     date_error_message,
     format_money,
     parse_required_range,
+    tool_empty_data,
+    tool_execution_error,
+    tool_unknown_entity,
     translate_status,
 )
 from app.tools.schemas import SalesQueryInput
@@ -35,11 +38,11 @@ def create_sales_query_tool(session: AsyncSession, service: SalesQueryService):
 
             region_id = await _resolve_region_id(service, session, region_name_value)
             if region_name_value and region_id is None:
-                return f"未找到大区：{region_name_value}，请确认大区名称是否正确"
+                return tool_unknown_entity("大区", region_name_value)
 
             rep_id = await _resolve_rep_id(service, session, rep_name_value)
             if rep_name_value and rep_id is None:
-                return f"未找到销售员：{rep_name_value}，请确认姓名是否正确"
+                return tool_unknown_entity("销售员", rep_name_value)
 
             orders = await service.query_orders(session, rep_id=rep_id, region_id=region_id, start=start, end=end)
             if customer_name_value:
@@ -47,7 +50,7 @@ def create_sales_query_tool(session: AsyncSession, service: SalesQueryService):
 
             if not orders:
                 scope = _scope_text(region_name_value, rep_name_value)
-                return f"在 {start_date} 至 {end_date} 期间，{scope}暂无订单数据"
+                return tool_empty_data(f"在 {start_date} 至 {end_date} 期间，{scope}暂无订单数据。")
 
             actual_limit = clamp(limit, 1, 50)
             limited = orders[:actual_limit]
@@ -55,7 +58,7 @@ def create_sales_query_tool(session: AsyncSession, service: SalesQueryService):
         except Exception as exc:
             if isinstance(exc, ValueError):
                 return date_error_message(exc)
-            return "查询订单数据时出现问题，请稍后重试"
+            return tool_execution_error()
 
     return query_sales_orders
 

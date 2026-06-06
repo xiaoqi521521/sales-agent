@@ -10,6 +10,7 @@ def test_system_prompt_matches_sales_agent_boundaries():
     assert "今天是 2026-02-15" in prompt
     assert "只能查询数据，不能修改任何数据" in prompt
     assert "不能预测未来销售" in prompt
+    assert "不能发送邮件、通知等操作" in prompt
     assert "用中文回答" in prompt
     assert "金额格式化为 ¥X,XXX" in prompt
     assert "CHART_JSON:" in prompt

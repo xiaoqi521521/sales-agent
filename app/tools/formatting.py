@@ -2,6 +2,16 @@ from datetime import date
 from decimal import Decimal
 
 
+class ToolBoundaryError(Exception):
+    def __init__(self, message: str) -> None:
+        self.message = message
+        super().__init__(message)
+
+
+class ToolUnknownEntityError(ToolBoundaryError):
+    pass
+
+
 def blank_to_none(value: str | None) -> str | None:
     if value is None:
         return None
@@ -42,5 +52,21 @@ def translate_status(status: str) -> str:
 
 def date_error_message(error: Exception) -> str:
     if isinstance(error, ValueError) and str(error) == "date_order":
-        return "日期范围错误，开始日期不能晚于结束日期"
-    return "日期格式错误，请使用 yyyy-MM-dd 格式，如：2026-01-01"
+        return tool_invalid_argument("日期范围错误，开始日期不能晚于结束日期。")
+    return tool_invalid_argument("日期格式错误，请使用 yyyy-MM-dd 格式，例如：2026-01-01。")
+
+
+def tool_empty_data(message: str) -> str:
+    return f"TOOL_EMPTY_DATA\n{message}\n可能原因：该时段无交易、数据尚未录入，或查询条件过于严格。"
+
+
+def tool_invalid_argument(message: str) -> str:
+    return f"TOOL_INVALID_ARGUMENT\n{message}"
+
+
+def tool_unknown_entity(entity_type: str, entity_name: str) -> str:
+    return f"TOOL_UNKNOWN_ENTITY\n未找到{entity_type}：{entity_name}。请确认名称是否正确，或改用可访问范围内的名称。"
+
+
+def tool_execution_error(message: str = "数据查询服务暂时不可用，请稍后重试。") -> str:
+    return f"TOOL_EXECUTION_ERROR\n{message}"

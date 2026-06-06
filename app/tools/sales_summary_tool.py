@@ -4,7 +4,17 @@ from langchain.tools import tool
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.services.sales_query_service import SalesQueryService
-from app.tools.formatting import blank_to_none, clamp, date_error_message, format_money, parse_required_range
+from app.tools.formatting import (
+    blank_to_none,
+    clamp,
+    date_error_message,
+    format_money,
+    parse_required_range,
+    tool_empty_data,
+    tool_execution_error,
+    tool_invalid_argument,
+    tool_unknown_entity,
+)
 from app.tools.schemas import SalesSummaryInput
 
 
@@ -29,11 +39,11 @@ def create_sales_summary_tool(session: AsyncSession, service: SalesQueryService)
                 return await _region_ranking(service, session, start, end)
             if summary_type == "product_ranking":
                 return await _product_ranking(service, session, start, end, top_n)
-            return "未知汇总类型，请使用 total、rep_ranking、region_ranking 或 product_ranking"
+            return tool_invalid_argument("未知汇总类型，请使用 total、rep_ranking、region_ranking 或 product_ranking。")
         except Exception as exc:
             if isinstance(exc, ValueError):
                 return date_error_message(exc)
-            return "查询汇总数据时出现问题，请稍后重试"
+            return tool_execution_error()
 
     return calculate_sales_summary
 
@@ -43,7 +53,7 @@ async def _sales_total(service: SalesQueryService, session: AsyncSession, start,
     if region_name:
         region_id = await service.get_region_id_by_name(session, region_name)
         if region_id is None:
-            return f"未找到大区：{region_name}"
+            return tool_unknown_entity("大区", region_name)
     total = await service.query_total_amount(session, region_id=region_id, start=start, end=end)
     scope = region_name if region_name else "全公司"
     return f"销售额汇总（{start} 至 {end}，{scope}）：\n总销售额：{format_money(total)}"
@@ -68,7 +78,7 @@ async def _rep_ranking(
     if region_name:
         reps = [rep for rep in reps if rep.region_name == region_name][:n]
     if not reps:
-        return "该时段内暂无销售员排名数据"
+        return tool_empty_data(f"在 {start} 至 {end} 期间，暂无销售员排名数据。")
 
     scope = region_name if region_name else "全公司"
     lines = [f"销售员业绩排名（{start} 至 {end}，{scope}）：", ""]
@@ -86,7 +96,7 @@ async def _region_ranking(service: SalesQueryService, session: AsyncSession, sta
         )
     regions = await service.query_region_ranking(session, start, end)
     if not regions:
-        return "该时段内暂无大区销售数据"
+        return tool_empty_data(f"在 {start} 至 {end} 期间，暂无大区销售数据。")
     grand_total = sum((region.total_amount for region in regions), Decimal("0"))
     lines = [f"大区业绩排名（{start} 至 {end}）：", ""]
     for index, region in enumerate(regions, start=1):
@@ -108,7 +118,7 @@ async def _product_ranking(service: SalesQueryService, session: AsyncSession, st
     else:
         products = products[:n]
     if not products:
-        return "该时段内暂无产品销售数据"
+        return tool_empty_data(f"在 {start} 至 {end} 期间，暂无产品销售数据。")
 
     prefix = "PERSONAL_PRODUCT_RANKING\n" if service.current_user and service.current_user.is_sales_rep else ""
     lines = [f"{prefix}产品销售排名{'（最差）' if is_worst else '（最佳）'}（{start} 至 {end}）：", ""]

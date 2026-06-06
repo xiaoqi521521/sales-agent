@@ -6,7 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.repositories.product_repository import ProductRepository
 from app.schemas.sales import AnomalyDTO
 from app.services.sales_query_service import SalesQueryService
-from app.tools.formatting import format_money
+from app.tools.formatting import format_money, tool_execution_error
 
 
 def create_anomaly_detection_tool(
@@ -30,7 +30,7 @@ def create_anomaly_detection_tool(
             anomalies.sort(key=lambda item: {"HIGH": 0, "MEDIUM": 1, "LOW": 2}.get(item.severity, 3))
             return _format_anomalies(anomalies)
         except Exception:
-            return "异常检测过程中出现问题，请稍后重试"
+            return tool_execution_error()
 
     return detect_sales_anomalies
 

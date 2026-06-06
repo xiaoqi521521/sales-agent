@@ -157,11 +157,11 @@ sales-agent/
 
 **任务：**
 
-- [ ] 明确 Python 版项目目标、能力边界和不做事项。
-- [ ] 定义 LangChain4j 到 LangChain/FastAPI 的映射关系。
-- [ ] 确定 API 路径、请求响应结构、错误返回格式。
+- [x] 明确 Python 版项目目标、能力边界和不做事项。
+- [x] 定义 LangChain4j 到 LangChain/FastAPI 的映射关系。
+- [x] 确定 API 路径、请求响应结构、错误返回格式。
 - [x] 确定开发阶段默认数据库为本地 MySQL，测试中可使用内存 SQLite 验证 Service/Repository 行为。
-- [ ] 确定认证、缓存、流式输出作为后续增强阶段接入，不阻塞基础 Agent 跑通。
+- [x] 确定认证、缓存、流式输出作为后续增强阶段接入，不阻塞基础 Agent 跑通。
 
 **验收：**
 
@@ -193,9 +193,9 @@ sales-agent/
 - [x] 增加应用包结构 `app/`。
 - [x] 增加配置类，读取 `.env`，提供 `APP_NAME`、`DATABASE_URL`、`OPENAI_API_KEY` 等配置。
 - [x] 增加健康检查接口 `GET /health`。
-- [ ] 增加统一异常响应模型。
+- [x] 增加统一异常响应模型。
 - [x] 配置测试客户端和基础集成测试。
-- [ ] 移除或保留根目录 `main.py` 作为兼容入口，实际应用入口迁移到 `app/main.py`。
+- [x] 移除或保留根目录 `main.py` 作为兼容入口，实际应用入口迁移到 `app/main.py`。
 
 **验收命令：**
 

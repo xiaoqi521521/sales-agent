@@ -4,7 +4,18 @@ from langchain.tools import tool
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.services.sales_query_service import SalesQueryService
-from app.tools.formatting import blank_to_none, clamp, date_error_message, format_money, parse_required_range
+from app.tools.formatting import (
+    ToolUnknownEntityError,
+    blank_to_none,
+    clamp,
+    date_error_message,
+    format_money,
+    parse_required_range,
+    tool_empty_data,
+    tool_execution_error,
+    tool_invalid_argument,
+    tool_unknown_entity,
+)
 from app.tools.schemas import SalesTrendInput
 
 
@@ -37,11 +48,13 @@ def create_sales_trend_tool(session: AsyncSession, service: SalesQueryService, t
                 return await _year_over_year(service, session, current_start, current_end, region_id, region_label)
             if trend_type == "monthly":
                 return await _monthly_trend(service, session, region_id, region_label, months, today)
-            return "未知趋势类型，请使用 mom、yoy 或 monthly"
+            return tool_invalid_argument("未知趋势类型，请使用 mom、yoy 或 monthly。")
         except Exception as exc:
             if isinstance(exc, ValueError):
                 return date_error_message(exc)
-            return "获取趋势数据时出现问题，请稍后重试"
+            if isinstance(exc, ToolUnknownEntityError):
+                return exc.message
+            return tool_execution_error()
 
     return analyze_sales_trend
 
@@ -51,7 +64,7 @@ async def _resolve_region(service: SalesQueryService, session: AsyncSession, reg
         return None, "全公司"
     region_id = await service.get_region_id_by_name(session, region_name)
     if region_id is None:
-        raise RuntimeError(f"未找到大区：{region_name}")
+        raise ToolUnknownEntityError(tool_unknown_entity("大区", region_name))
     return region_id, region_name
 
 
@@ -115,7 +128,7 @@ async def _monthly_trend(service: SalesQueryService, session: AsyncSession, regi
     month_count = clamp(months, 1, 24)
     trend = await service.query_monthly_trend(session, region_id, month_count, today=today)
     if not trend:
-        return "暂无趋势数据"
+        return tool_empty_data(f"近 {month_count} 个月，{region_label}暂无趋势数据。")
     lines = [f"月度销售趋势（近 {month_count} 个月，{region_label}）：", ""]
     previous = None
     for item in trend:

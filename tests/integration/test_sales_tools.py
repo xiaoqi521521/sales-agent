@@ -10,6 +10,7 @@ from app.models.product import Product
 from app.models.sales_order import SalesOrder
 from app.models.sales_region import SalesRegion
 from app.models.sales_rep import SalesRep
+from app.services.sales_query_service import SalesQueryService
 from app.tools.registry import create_sales_tools
 
 
@@ -131,6 +132,141 @@ async def test_trend_chart_and_anomaly_tools_match_reference_outputs():
         assert "销售员业绩骤降" in anomaly_text
 
     await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_sales_tools_return_stable_boundary_messages():
+    engine = create_async_engine("sqlite+aiosqlite:///:memory:")
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+
+    session_factory = async_sessionmaker(engine, expire_on_commit=False)
+    async with session_factory() as session:
+        session.add_all(
+            [
+                SalesRegion(id=1, name="East"),
+                SalesRep(id=1, name="Zhang Wei", region_id=1, role="SALES_REP", email="zhangwei@example.com"),
+            ]
+        )
+        await session.commit()
+
+        tools = {tool.name: tool for tool in create_sales_tools(session=session, today=date(2026, 2, 15))}
+
+        empty_orders_text = await tools["query_sales_orders"].ainvoke(
+            {
+                "start_date": "2026-01-01",
+                "end_date": "2026-01-31",
+                "region_name": "East",
+                "rep_name": "",
+                "limit": 10,
+            }
+        )
+        assert empty_orders_text.startswith("TOOL_EMPTY_DATA")
+        assert "可能原因" in empty_orders_text
+
+        invalid_date_text = await tools["query_sales_orders"].ainvoke(
+            {
+                "start_date": "2026/01/01",
+                "end_date": "2026-01-31",
+                "region_name": "",
+                "rep_name": "",
+                "limit": 10,
+            }
+        )
+        assert invalid_date_text.startswith("TOOL_INVALID_ARGUMENT")
+        assert "yyyy-MM-dd" in invalid_date_text
+
+        reversed_date_text = await tools["calculate_sales_summary"].ainvoke(
+            {
+                "summary_type": "rep_ranking",
+                "start_date": "2026-02-01",
+                "end_date": "2026-01-01",
+                "region_name": "",
+                "top_n": 5,
+            }
+        )
+        assert reversed_date_text.startswith("TOOL_INVALID_ARGUMENT")
+        assert "开始日期不能晚于结束日期" in reversed_date_text
+
+        unknown_region_text = await tools["analyze_sales_trend"].ainvoke(
+            {
+                "trend_type": "monthly",
+                "region_name": "Unknown Region",
+                "months": 3,
+            }
+        )
+        assert unknown_region_text.startswith("TOOL_UNKNOWN_ENTITY")
+        assert "未找到大区：Unknown Region" in unknown_region_text
+
+        unknown_rep_text = await tools["query_sales_orders"].ainvoke(
+            {
+                "start_date": "2026-01-01",
+                "end_date": "2026-01-31",
+                "region_name": "",
+                "rep_name": "Nobody",
+                "limit": 10,
+            }
+        )
+        assert unknown_rep_text.startswith("TOOL_UNKNOWN_ENTITY")
+        assert "未找到销售员：Nobody" in unknown_rep_text
+
+        invalid_chart_text = await tools["generate_sales_chart"].ainvoke(
+            {
+                "chart_type": "bar",
+                "dimension": "category",
+                "start_date": "2026-01-01",
+                "end_date": "2026-01-31",
+                "months": 3,
+                "region_name": "",
+                "title": "Category Bar",
+            }
+        )
+        assert invalid_chart_text.startswith("TOOL_INVALID_ARGUMENT")
+        assert "柱状图支持的维度" in invalid_chart_text
+
+        anomaly_text = await tools["detect_sales_anomalies"].ainvoke({})
+        assert anomaly_text == "当前数据未检测到明显异常，销售数据运行正常。"
+
+    await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_sales_tools_hide_internal_execution_errors():
+    class FailingSalesQueryService(SalesQueryService):
+        async def query_total_amount(self, *args, **kwargs):
+            raise RuntimeError("database password leaked in stack trace")
+
+    engine = create_async_engine("sqlite+aiosqlite:///:memory:")
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+
+    session_factory = async_sessionmaker(engine, expire_on_commit=False)
+    async with session_factory() as session:
+        tools = {
+            tool.name: tool
+            for tool in create_sales_tools(
+                session=session,
+                service=FailingSalesQueryService(),
+                today=date(2026, 2, 15),
+            )
+        }
+
+        text = await tools["calculate_sales_summary"].ainvoke(
+            {
+                "summary_type": "total",
+                "start_date": "2026-01-01",
+                "end_date": "2026-01-31",
+                "region_name": "",
+                "top_n": 5,
+            }
+        )
+
+    await engine.dispose()
+
+    assert text.startswith("TOOL_EXECUTION_ERROR")
+    assert "服务暂时不可用" in text
+    assert "database password" not in text
+    assert "RuntimeError" not in text
 
 
 def _sample_rows():
