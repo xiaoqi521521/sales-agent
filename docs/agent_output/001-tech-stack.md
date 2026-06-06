@@ -125,21 +125,20 @@ Agent Runtime 策略：
 - 同步 API `POST /agent/chat` 返回完整回答、耗时、工具调用摘要和数据引用占位。
 - 流式 API `POST /agent/chat/stream` 使用 SSE，事件类型包括 `token`、`tool`、`done`、`error`，事件数据统一使用 JSON。
 
-## 认证与权限阶段计划技术栈
+## 认证与权限阶段技术栈
 
-以下依赖会在用户认证与数据权限隔离阶段再引入：
+- PyJWT：JWT 编码、解码和过期时间校验，已用于 `POST /auth/login` 和 Bearer Token 鉴权。
+- FastAPI `OAuth2PasswordBearer`：从 `Authorization: Bearer <token>` 解析访问令牌。
+- 当前登录身份复用 `sa_sales_rep`，开发期沿用参考文献的 `repId` 登录方式；暂不引入 `passlib` / `bcrypt`，等正式密码登录阶段再补。
 
-- python-jose：JWT 编码和解码。
-- passlib：密码哈希和校验。
-- bcrypt：密码哈希算法支持。
-
-计划使用位置：
+当前使用位置：
 
 ```text
 app/core/security.py
 app/api/dependencies.py
 app/api/v1/endpoints/auth.py
-app/services/auth_service.py
+app/core/auth_context.py
+app/services/sales_query_service.py
 ```
 
 ## 缓存阶段计划技术栈
@@ -176,6 +175,7 @@ alembic
 asyncmy
 langchain
 langchain-openai
+PyJWT
 ```
 
 开发依赖：

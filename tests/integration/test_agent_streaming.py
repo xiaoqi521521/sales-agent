@@ -4,8 +4,18 @@ from httpx import ASGITransport, AsyncClient
 import pytest
 
 from app.agent.streaming import AgentStreamEvent
-from app.api.dependencies import get_sales_agent_runtime
+from app.api.dependencies import get_current_user, get_sales_agent_runtime
+from app.core.auth_context import CurrentUser
 from app.main import app
+
+
+def fake_current_user() -> CurrentUser:
+    return CurrentUser(
+        username="Test Director",
+        role="SALES_DIRECTOR",
+        region_id=None,
+        rep_id=99,
+    )
 
 
 class FakeStreamingRuntime:
@@ -36,6 +46,7 @@ class FailingStreamingRuntime:
 @pytest.mark.asyncio
 async def test_agent_stream_endpoint_returns_sse_events():
     app.dependency_overrides[get_sales_agent_runtime] = lambda: FakeStreamingRuntime()
+    app.dependency_overrides[get_current_user] = fake_current_user
     transport = ASGITransport(app=app)
 
     async with AsyncClient(transport=transport, base_url="http://test") as client:
@@ -61,6 +72,7 @@ async def test_agent_stream_endpoint_returns_sse_events():
 @pytest.mark.asyncio
 async def test_agent_stream_endpoint_returns_uniform_error_event():
     app.dependency_overrides[get_sales_agent_runtime] = lambda: FailingStreamingRuntime()
+    app.dependency_overrides[get_current_user] = fake_current_user
     transport = ASGITransport(app=app)
 
     async with AsyncClient(transport=transport, base_url="http://test") as client:

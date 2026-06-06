@@ -4,8 +4,6 @@ from langchain.tools import tool
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.repositories.product_repository import ProductRepository
-from app.repositories.sales_region_repository import SalesRegionRepository
-from app.repositories.sales_rep_repository import SalesRepRepository
 from app.schemas.sales import AnomalyDTO
 from app.services.sales_query_service import SalesQueryService
 from app.tools.formatting import format_money
@@ -38,14 +36,13 @@ def create_anomaly_detection_tool(
 
 
 async def _detect_region_drop(session: AsyncSession, service: SalesQueryService, today: date, threshold: float):
-    region_repository = SalesRegionRepository()
     recent_start = today - timedelta(days=14)
     recent_end = today
     base_start = today - timedelta(days=42)
     base_end = today - timedelta(days=15)
 
     anomalies = []
-    for region in await region_repository.find_all(session):
+    for region in await service.visible_regions(session):
         recent_count = await service.query_order_count(session, region.id, recent_start, recent_end)
         base_count = await service.query_order_count(session, region.id, base_start, base_end)
         base_avg = base_count / 2
@@ -71,6 +68,8 @@ async def _detect_zero_sale_products(
     today: date,
     threshold_days: int,
 ):
+    if service.current_user and service.current_user.is_sales_rep:
+        return []
     product_repository = ProductRepository()
     anomalies = []
     for product in await product_repository.find_by_status(session, "ACTIVE"):
@@ -114,12 +113,11 @@ async def _detect_high_refund_reps(session: AsyncSession, service: SalesQuerySer
 
 
 async def _detect_rep_performance_drop(session: AsyncSession, service: SalesQueryService, today: date):
-    rep_repository = SalesRepRepository()
     current_start = today - timedelta(days=30)
     previous_start = today - timedelta(days=60)
     previous_end = today - timedelta(days=31)
     anomalies = []
-    for rep in await rep_repository.find_by_role(session, "SALES_REP"):
+    for rep in await service.visible_sales_reps(session):
         current = await service.order_repository.sum_amount_by_rep(session, rep.id, current_start, today)
         previous = await service.order_repository.sum_amount_by_rep(session, rep.id, previous_start, previous_end)
         if previous <= 0:

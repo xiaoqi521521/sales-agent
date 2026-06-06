@@ -2,8 +2,18 @@ from httpx import ASGITransport, AsyncClient
 import pytest
 
 from app.agent.runtime import AgentRunResult, ToolCallTrace
-from app.api.dependencies import get_sales_agent_runtime
+from app.api.dependencies import get_current_user, get_sales_agent_runtime
+from app.core.auth_context import CurrentUser
 from app.main import app
+
+
+def fake_current_user() -> CurrentUser:
+    return CurrentUser(
+        username="Test Director",
+        role="SALES_DIRECTOR",
+        region_id=None,
+        rep_id=99,
+    )
 
 
 class FakeRuntime:
@@ -22,6 +32,7 @@ class FakeRuntime:
 @pytest.mark.asyncio
 async def test_agent_chat_endpoint_returns_reference_response_shape():
     app.dependency_overrides[get_sales_agent_runtime] = lambda: FakeRuntime()
+    app.dependency_overrides[get_current_user] = fake_current_user
     transport = ASGITransport(app=app)
 
     async with AsyncClient(transport=transport, base_url="http://test") as client:
@@ -49,6 +60,7 @@ async def test_agent_chat_endpoint_returns_reference_response_shape():
 @pytest.mark.asyncio
 async def test_agent_chat_endpoint_validates_request_body():
     app.dependency_overrides[get_sales_agent_runtime] = lambda: FakeRuntime()
+    app.dependency_overrides[get_current_user] = fake_current_user
     transport = ASGITransport(app=app)
 
     async with AsyncClient(transport=transport, base_url="http://test") as client:

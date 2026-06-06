@@ -423,24 +423,21 @@ uv run pytest tests/integration/test_agent_api.py tests/integration/test_agent_s
 
 **主要文件：**
 
-- `app/models/user.py`
 - `app/schemas/auth.py`
 - `app/core/security.py`
-- `app/core/context.py`
+- `app/core/auth_context.py`
 - `app/api/dependencies.py`
 - `app/api/v1/endpoints/auth.py`
-- `app/services/auth_service.py`
-- `app/repositories/user_repository.py`
 - `tests/integration/test_auth.py`
 - `tests/integration/test_data_permissions.py`
 
 **任务：**
 
-- [ ] 定义角色：`SALES_REP`、`SALES_MANAGER`、`SALES_DIRECTOR`。
-- [ ] 实现登录接口和 JWT 访问令牌。
-- [ ] 在依赖注入中解析当前用户。
-- [ ] 在 Service 查询条件中注入权限过滤：销售员只能看自己，主管只能看本大区，总监看全公司。
-- [ ] 验证工具层调用同样受权限约束。
+- [x] 定义角色：`SALES_REP`、`SALES_MANAGER`、`SALES_DIRECTOR`。
+- [x] 实现登录接口和 JWT 访问令牌。
+- [x] 在依赖注入中解析当前用户。
+- [x] 在 Service 查询条件中注入权限过滤：销售员只能看自己，主管只能看本大区，总监看全公司。
+- [x] 验证工具层调用同样受权限约束。
 
 **验收命令：**
 

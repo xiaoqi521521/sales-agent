@@ -3,6 +3,7 @@ from decimal import Decimal, ROUND_HALF_UP
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.auth_context import CurrentUser
 from app.models.product import Product
 from app.models.sales_order import SalesOrder
 from app.models.sales_region import SalesRegion
@@ -27,11 +28,13 @@ class SalesQueryService:
         rep_repository: SalesRepRepository | None = None,
         product_repository: ProductRepository | None = None,
         region_repository: SalesRegionRepository | None = None,
+        current_user: CurrentUser | None = None,
     ) -> None:
         self.order_repository = order_repository or SalesOrderRepository()
         self.rep_repository = rep_repository or SalesRepRepository()
         self.product_repository = product_repository or ProductRepository()
         self.region_repository = region_repository or SalesRegionRepository()
+        self.current_user = current_user
 
     async def query_orders(
         self,
@@ -43,6 +46,10 @@ class SalesQueryService:
         end: date,
         product_id: int | None = None,
     ) -> list[OrderSummaryDTO]:
+        rep_id, region_id = await self._order_scope(session, rep_id=rep_id, region_id=region_id)
+        if self._is_invalid_scope(rep_id, region_id):
+            return []
+
         if rep_id is not None:
             orders = await self.order_repository.find_by_rep_id_and_order_date_between(session, rep_id, start, end)
         elif region_id is not None:
@@ -71,6 +78,11 @@ class SalesQueryService:
         start: date,
         end: date,
     ) -> Decimal:
+        if self.current_user and self.current_user.is_sales_rep:
+            return await self.order_repository.sum_amount_by_rep(session, self.current_user.rep_id, start, end)
+        region_id = self._region_scope(region_id)
+        if region_id == -1:
+            return Decimal("0")
         if region_id is not None:
             return await self.order_repository.sum_amount_by_region(session, region_id, start, end)
 
@@ -91,7 +103,8 @@ class SalesQueryService:
         region_map = await self._region_map(session)
         result: list[RepSalesDTO] = []
 
-        for rep_id, total in await self.order_repository.find_rep_ranking(session, start, end):
+        rows = await self._scoped_rep_ranking(session, start, end)
+        for rep_id, total in rows:
             rep = rep_map.get(rep_id)
             if rep is None:
                 continue
@@ -120,7 +133,8 @@ class SalesQueryService:
         region_map = await self._region_map(session)
         result: list[RegionSalesDTO] = []
 
-        for region_id, total in await self.order_repository.find_region_ranking(session, start, end):
+        rows = await self._scoped_region_ranking(session, start, end)
+        for region_id, total in rows:
             region = region_map.get(region_id)
             result.append(
                 RegionSalesDTO(
@@ -144,7 +158,8 @@ class SalesQueryService:
         product_map = await self._product_map(session)
         result: list[ProductSalesDTO] = []
 
-        for product_id, total, quantity in await self.order_repository.find_product_ranking(session, start, end):
+        rows = await self._scoped_product_ranking(session, start, end)
+        for product_id, total, quantity in rows:
             product = product_map.get(product_id)
             if product is None:
                 continue
@@ -172,7 +187,13 @@ class SalesQueryService:
     ) -> list[MonthlyTrendDTO]:
         end = today or date.today()
         start = self._minus_months(end, months).replace(day=1)
-        raw = await self.order_repository.find_monthly_trend(session, region_id, start, end)
+        if self.current_user and self.current_user.is_sales_rep:
+            raw = await self.order_repository.find_monthly_trend_by_rep(session, self.current_user.rep_id, start, end)
+        else:
+            scoped_region_id = self._region_scope(region_id)
+            if scoped_region_id == -1:
+                return []
+            raw = await self.order_repository.find_monthly_trend(session, scoped_region_id, start, end)
         return [MonthlyTrendDTO(month=month, total_amount=total, order_count=count) for month, total, count in raw]
 
     def calc_growth_rate(self, current: Decimal, previous: Decimal | None) -> Decimal | None:
@@ -182,12 +203,38 @@ class SalesQueryService:
         return rate.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
 
     async def query_last_order_date(self, session: AsyncSession, product_id: int) -> date | None:
+        if self.current_user and self.current_user.is_sales_rep:
+            return await self.order_repository.find_last_order_date_by_product_and_rep(
+                session,
+                product_id,
+                self.current_user.rep_id,
+            )
+        if self.current_user and self.current_user.is_sales_manager:
+            if self.current_user.region_id is None:
+                return None
+            return await self.order_repository.find_last_order_date_by_product_and_region(
+                session,
+                product_id,
+                self.current_user.region_id,
+            )
         return await self.order_repository.find_last_order_date_by_product(session, product_id)
 
     async def query_order_count(self, session: AsyncSession, region_id: int, start: date, end: date) -> int:
+        if self.current_user and self.current_user.is_sales_rep:
+            return await self.order_repository.count_completed_by_rep(session, self.current_user.rep_id, start, end)
+        region_id = self._region_scope(region_id)
+        if region_id == -1 or region_id is None:
+            return 0
         return await self.order_repository.count_completed_by_region(session, region_id, start, end)
 
     async def query_refund_rates(self, session: AsyncSession, start: date, end: date) -> list[tuple[int, int, int]]:
+        if self.current_user and self.current_user.is_sales_rep:
+            rows = await self.order_repository.find_refund_rate_by_rep(session, start, end)
+            return [row for row in rows if row[0] == self.current_user.rep_id]
+        if self.current_user and self.current_user.is_sales_manager:
+            if self.current_user.region_id is None:
+                return []
+            return await self.order_repository.find_refund_rate_by_region(session, self.current_user.region_id, start, end)
         return await self.order_repository.find_refund_rate_by_rep(session, start, end)
 
     async def get_rep_name(self, session: AsyncSession, rep_id: int) -> str:
@@ -200,11 +247,122 @@ class SalesQueryService:
 
     async def get_region_id_by_name(self, session: AsyncSession, region_name: str) -> int | None:
         region = await self.region_repository.find_by_name(session, region_name)
-        return region.id if region else None
+        if region is None:
+            return None
+        scoped_region_id = self._region_scope(region.id)
+        return None if scoped_region_id == -1 else region.id
 
     async def get_rep_id_by_name(self, session: AsyncSession, rep_name: str) -> int | None:
         rep = await self.rep_repository.find_by_name(session, rep_name)
-        return rep.id if rep else None
+        if rep is None:
+            return None
+        scoped_rep_id, scoped_region_id = await self._order_scope(session, rep_id=rep.id, region_id=None)
+        if self._is_invalid_scope(scoped_rep_id, scoped_region_id):
+            return None
+        return rep.id
+
+    async def visible_regions(self, session: AsyncSession) -> list[SalesRegion]:
+        if self.current_user is None or self.current_user.is_sales_director:
+            return await self.region_repository.find_all(session)
+        if self.current_user.is_sales_rep or self.current_user.region_id is None:
+            return []
+        region = await self.region_repository.find_by_id(session, self.current_user.region_id)
+        return [region] if region else []
+
+    async def visible_sales_reps(self, session: AsyncSession) -> list[SalesRep]:
+        if self.current_user is None or self.current_user.is_sales_director:
+            return await self.rep_repository.find_by_role(session, "SALES_REP")
+        if self.current_user.is_sales_rep:
+            rep = await self.rep_repository.find_by_id(session, self.current_user.rep_id)
+            return [rep] if rep else []
+        if self.current_user.region_id is None:
+            return []
+        reps = await self.rep_repository.find_by_region_id(session, self.current_user.region_id)
+        return [rep for rep in reps if rep.role == "SALES_REP"]
+
+    async def _order_scope(
+        self,
+        session: AsyncSession,
+        *,
+        rep_id: int | None,
+        region_id: int | None,
+    ) -> tuple[int | None, int | None]:
+        if self.current_user is None or self.current_user.is_sales_director:
+            return rep_id, region_id
+        if self.current_user.is_sales_rep:
+            if rep_id is not None and rep_id != self.current_user.rep_id:
+                return -1, -1
+            if region_id is not None and region_id != self.current_user.region_id:
+                return -1, -1
+            return self.current_user.rep_id, self.current_user.region_id
+        if self.current_user.region_id is None:
+            return -1, -1
+        if region_id is not None and region_id != self.current_user.region_id:
+            return -1, -1
+        if rep_id is not None:
+            rep = await self.rep_repository.find_by_id(session, rep_id)
+            if rep is None or rep.region_id != self.current_user.region_id:
+                return -1, -1
+            return rep_id, self.current_user.region_id
+        return None, self.current_user.region_id
+
+    def _region_scope(self, region_id: int | None) -> int | None:
+        if self.current_user is None or self.current_user.is_sales_director:
+            return region_id
+        if self.current_user.region_id is None:
+            return -1
+        if region_id is not None and region_id != self.current_user.region_id:
+            return -1
+        return self.current_user.region_id
+
+    async def _scoped_rep_ranking(
+        self,
+        session: AsyncSession,
+        start: date,
+        end: date,
+    ) -> list[tuple[int, Decimal]]:
+        if self.current_user is None or self.current_user.is_sales_director:
+            return await self.order_repository.find_rep_ranking(session, start, end)
+        if self.current_user.is_sales_rep:
+            rows = await self.order_repository.find_rep_ranking(session, start, end)
+            return [row for row in rows if row[0] == self.current_user.rep_id]
+        if self.current_user.region_id is None:
+            return []
+        return await self.order_repository.find_rep_ranking_by_region(session, self.current_user.region_id, start, end)
+
+    async def _scoped_region_ranking(
+        self,
+        session: AsyncSession,
+        start: date,
+        end: date,
+    ) -> list[tuple[int, Decimal]]:
+        if self.current_user is None or self.current_user.is_sales_director:
+            return await self.order_repository.find_region_ranking(session, start, end)
+        if self.current_user.is_sales_rep:
+            if self.current_user.region_id is None:
+                return []
+            total = await self.order_repository.sum_amount_by_rep(session, self.current_user.rep_id, start, end)
+            return [] if total == 0 else [(self.current_user.region_id, total)]
+        if self.current_user.region_id is None:
+            return []
+        return await self.order_repository.find_region_ranking_by_region(session, self.current_user.region_id, start, end)
+
+    async def _scoped_product_ranking(
+        self,
+        session: AsyncSession,
+        start: date,
+        end: date,
+    ) -> list[tuple[int, Decimal, int]]:
+        if self.current_user is None or self.current_user.is_sales_director:
+            return await self.order_repository.find_product_ranking(session, start, end)
+        if self.current_user.is_sales_rep:
+            return await self.order_repository.find_product_ranking_by_rep(session, self.current_user.rep_id, start, end)
+        if self.current_user.region_id is None:
+            return []
+        return await self.order_repository.find_product_ranking_by_region(session, self.current_user.region_id, start, end)
+
+    def _is_invalid_scope(self, rep_id: int | None, region_id: int | None) -> bool:
+        return rep_id == -1 or region_id == -1
 
     async def _rep_map(self, session: AsyncSession) -> dict[int, SalesRep]:
         return {rep.id: rep for rep in await self.rep_repository.find_all(session)}

@@ -11,6 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.agent.memory import ChatMemoryService, StoredMessage
 from app.agent.prompts import build_system_prompt
+from app.core.auth_context import CurrentUser
 from app.core.config import get_settings
 from app.tools.registry import create_sales_tools
 
@@ -58,17 +59,19 @@ class SalesAgentRuntime:
         today: date | None = None,                                # 当前日期，用于系统提示词，默认当天
         memory_service: ChatMemoryService | None = None,          # 对话记忆服务，默认最多保留20条
         checkpointer: Any | None = None,                          # LangGraph 检查点（可选，用于持久化图状态）
+        current_user: CurrentUser | None = None,
         agent_factory: AgentFactory = create_agent,               # Agent 工厂函数，支持替换为 Mock
         recursion_limit: int = 10,                                # Agent 最大递归调用次数，防止死循环
     ) -> None:
         self.session = session
         self.today = today or date.today()
+        self.current_user = current_user
         self.memory_service = memory_service or ChatMemoryService(max_messages=20)
         self.recursion_limit = recursion_limit
         # 创建所有销售查询工具（闭包绑定 session 和 today）
-        self.tools = create_sales_tools(session=session, today=self.today)
+        self.tools = create_sales_tools(session=session, today=self.today, current_user=current_user)
         # 构建系统提示词（告知 Agent 角色、规则、当前日期）
-        self.system_prompt = build_system_prompt(self.today)
+        self.system_prompt = build_system_prompt(self.today, current_user=current_user)
         agent_kwargs = {
             "model": model or create_default_chat_model(),
             "tools": self.tools,

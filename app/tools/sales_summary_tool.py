@@ -58,6 +58,12 @@ async def _rep_ranking(
     top_n: int,
 ) -> str:
     n = clamp(top_n, 1, 20)
+    if service.current_user and service.current_user.is_sales_rep:
+        return (
+            "NO_PERMISSION_REP_RANKING\n"
+            "当前账号只能查看本人销售数据，不能查看团队销售员排行。"
+            "你可以查询“我的销售额”“我的产品销售排行”或“我的销售趋势”。"
+        )
     reps = await service.query_rep_ranking(session, start, end, n if not region_name else 100)
     if region_name:
         reps = [rep for rep in reps if rep.region_name == region_name][:n]
@@ -72,6 +78,12 @@ async def _rep_ranking(
 
 
 async def _region_ranking(service: SalesQueryService, session: AsyncSession, start, end) -> str:
+    if service.current_user and service.current_user.is_sales_rep:
+        return (
+            "NO_PERMISSION_REGION_RANKING\n"
+            "当前账号无权查看大区排行。该数据需要销售主管或销售总监权限。"
+            "你可以查询“我的销售额”“我的产品销售排行”或“我的销售趋势”。"
+        )
     regions = await service.query_region_ranking(session, start, end)
     if not regions:
         return "该时段内暂无大区销售数据"
@@ -98,7 +110,8 @@ async def _product_ranking(service: SalesQueryService, session: AsyncSession, st
     if not products:
         return "该时段内暂无产品销售数据"
 
-    lines = [f"产品销售排名{'（最差）' if is_worst else '（最佳）'}（{start} 至 {end}）：", ""]
+    prefix = "PERSONAL_PRODUCT_RANKING\n" if service.current_user and service.current_user.is_sales_rep else ""
+    lines = [f"{prefix}产品销售排名{'（最差）' if is_worst else '（最佳）'}（{start} 至 {end}）：", ""]
     for index, product in enumerate(products, start=1):
         lines.append(
             f"第 {index} 名：{product.product_name} [{product.sku_code}] 品类：{product.category} "

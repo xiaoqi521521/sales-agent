@@ -2,6 +2,7 @@
 .venv/
 .idea/
 docs/reference/
+docs/log/
 .pytest_cache/
 __pycache__/
 *.py[cod]

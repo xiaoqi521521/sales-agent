@@ -67,6 +67,23 @@ class SalesOrderRepository(BaseRepository[SalesOrder]):
         )
         return [(rep_id, total) for rep_id, total in result.all()]
 
+    async def find_rep_ranking_by_region(
+        self,
+        session: AsyncSession,
+        region_id: int,
+        start: date,
+        end: date,
+    ) -> list[tuple[int, Decimal]]:
+        result = await session.execute(
+            select(SalesOrder.rep_id, func.sum(SalesOrder.amount).label("total"))
+            .where(SalesOrder.region_id == region_id)
+            .where(SalesOrder.status == "COMPLETED")
+            .where(SalesOrder.order_date.between(start, end))
+            .group_by(SalesOrder.rep_id)
+            .order_by(func.sum(SalesOrder.amount).desc())
+        )
+        return [(rep_id, total) for rep_id, total in result.all()]
+
     async def find_region_ranking(self, session: AsyncSession, start: date, end: date) -> list[tuple[int, Decimal]]:
         result = await session.execute(
             select(SalesOrder.region_id, func.sum(SalesOrder.amount).label("total"))
@@ -76,6 +93,18 @@ class SalesOrderRepository(BaseRepository[SalesOrder]):
             .order_by(func.sum(SalesOrder.amount).desc())
         )
         return [(region_id, total) for region_id, total in result.all()]
+
+    async def find_region_ranking_by_region(
+        self,
+        session: AsyncSession,
+        region_id: int,
+        start: date,
+        end: date,
+    ) -> list[tuple[int, Decimal]]:
+        total = await self.sum_amount_by_region(session, region_id, start, end)
+        if total == 0:
+            return []
+        return [(region_id, total)]
 
     async def find_product_ranking(
         self,
@@ -95,6 +124,24 @@ class SalesOrderRepository(BaseRepository[SalesOrder]):
             .order_by(func.sum(SalesOrder.amount).desc())
         )
         return [(product_id, total, int(quantity)) for product_id, total, quantity in result.all()]
+
+    async def find_product_ranking_by_region(
+        self,
+        session: AsyncSession,
+        region_id: int,
+        start: date,
+        end: date,
+    ) -> list[tuple[int, Decimal, int]]:
+        return await self._find_product_ranking_by_predicate(session, SalesOrder.region_id == region_id, start, end)
+
+    async def find_product_ranking_by_rep(
+        self,
+        session: AsyncSession,
+        rep_id: int,
+        start: date,
+        end: date,
+    ) -> list[tuple[int, Decimal, int]]:
+        return await self._find_product_ranking_by_predicate(session, SalesOrder.rep_id == rep_id, start, end)
 
     async def find_monthly_trend(
         self,
@@ -116,6 +163,26 @@ class SalesOrderRepository(BaseRepository[SalesOrder]):
         result = await session.execute(statement)
         return [(month, total, int(order_count)) for month, total, order_count in result.all()]
 
+    async def find_monthly_trend_by_rep(
+        self,
+        session: AsyncSession,
+        rep_id: int,
+        start: date,
+        end: date,
+    ) -> list[tuple[str, Decimal, int]]:
+        month_expr = self._month_expression(session).label("month")
+        statement = (
+            select(month_expr, func.sum(SalesOrder.amount), func.count())
+            .where(SalesOrder.rep_id == rep_id)
+            .where(SalesOrder.status == "COMPLETED")
+            .where(SalesOrder.order_date.between(start, end))
+            .group_by(month_expr)
+            .order_by(month_expr)
+        )
+
+        result = await session.execute(statement)
+        return [(month, total, int(order_count)) for month, total, order_count in result.all()]
+
     async def find_last_order_date_by_product(self, session: AsyncSession, product_id: int) -> date | None:
         result = await session.execute(
             select(func.max(SalesOrder.order_date))
@@ -124,10 +191,55 @@ class SalesOrderRepository(BaseRepository[SalesOrder]):
         )
         return result.scalar_one_or_none()
 
+    async def find_last_order_date_by_product_and_region(
+        self,
+        session: AsyncSession,
+        product_id: int,
+        region_id: int,
+    ) -> date | None:
+        result = await session.execute(
+            select(func.max(SalesOrder.order_date))
+            .where(SalesOrder.product_id == product_id)
+            .where(SalesOrder.region_id == region_id)
+            .where(SalesOrder.status == "COMPLETED")
+        )
+        return result.scalar_one_or_none()
+
+    async def find_last_order_date_by_product_and_rep(
+        self,
+        session: AsyncSession,
+        product_id: int,
+        rep_id: int,
+    ) -> date | None:
+        result = await session.execute(
+            select(func.max(SalesOrder.order_date))
+            .where(SalesOrder.product_id == product_id)
+            .where(SalesOrder.rep_id == rep_id)
+            .where(SalesOrder.status == "COMPLETED")
+        )
+        return result.scalar_one_or_none()
+
     async def find_refund_rate_by_rep(self, session: AsyncSession, start: date, end: date) -> list[tuple[int, int, int]]:
         refunded_count = func.sum(case((SalesOrder.status == "REFUNDED", 1), else_=0))
         result = await session.execute(
             select(SalesOrder.rep_id, refunded_count, func.count())
+            .where(SalesOrder.order_date.between(start, end))
+            .group_by(SalesOrder.rep_id)
+            .order_by(SalesOrder.rep_id)
+        )
+        return [(rep_id, int(refunded), int(total)) for rep_id, refunded, total in result.all()]
+
+    async def find_refund_rate_by_region(
+        self,
+        session: AsyncSession,
+        region_id: int,
+        start: date,
+        end: date,
+    ) -> list[tuple[int, int, int]]:
+        refunded_count = func.sum(case((SalesOrder.status == "REFUNDED", 1), else_=0))
+        result = await session.execute(
+            select(SalesOrder.rep_id, refunded_count, func.count())
+            .where(SalesOrder.region_id == region_id)
             .where(SalesOrder.order_date.between(start, end))
             .group_by(SalesOrder.rep_id)
             .order_by(SalesOrder.rep_id)
@@ -150,6 +262,22 @@ class SalesOrderRepository(BaseRepository[SalesOrder]):
         )
         return int(result.scalar_one())
 
+    async def count_completed_by_rep(
+        self,
+        session: AsyncSession,
+        rep_id: int,
+        start: date,
+        end: date,
+    ) -> int:
+        result = await session.execute(
+            select(func.count())
+            .select_from(SalesOrder)
+            .where(SalesOrder.rep_id == rep_id)
+            .where(SalesOrder.status == "COMPLETED")
+            .where(SalesOrder.order_date.between(start, end))
+        )
+        return int(result.scalar_one())
+
     async def _find_by_date_range(self, session: AsyncSession, predicate, start: date, end: date) -> list[SalesOrder]:
         result = await session.execute(
             select(SalesOrder).where(predicate).where(SalesOrder.order_date.between(start, end)).order_by(SalesOrder.id)
@@ -164,6 +292,27 @@ class SalesOrderRepository(BaseRepository[SalesOrder]):
             .where(SalesOrder.order_date.between(start, end))
         )
         return result.scalar_one()
+
+    async def _find_product_ranking_by_predicate(
+        self,
+        session: AsyncSession,
+        predicate,
+        start: date,
+        end: date,
+    ) -> list[tuple[int, Decimal, int]]:
+        result = await session.execute(
+            select(
+                SalesOrder.product_id,
+                func.sum(SalesOrder.amount).label("total"),
+                func.sum(SalesOrder.quantity).label("quantity"),
+            )
+            .where(predicate)
+            .where(SalesOrder.status == "COMPLETED")
+            .where(SalesOrder.order_date.between(start, end))
+            .group_by(SalesOrder.product_id)
+            .order_by(func.sum(SalesOrder.amount).desc())
+        )
+        return [(product_id, total, int(quantity)) for product_id, total, quantity in result.all()]
 
     def _month_expression(self, session: AsyncSession):
         dialect_name = session.get_bind().dialect.name
