@@ -472,8 +472,8 @@ uv run pytest tests/integration/test_auth.py tests/integration/test_data_permiss
 
 **任务：**
 
-- [ ] 统一 API 错误返回结构。
-- [ ] 统一工具错误返回结构。
+- [x] 统一 API 错误返回结构。
+- [x] 统一工具错误返回结构。
 - [ ] 增加参数白名单校验，特别是排序字段、时间范围、枚举条件。
 - [ ] 避免 NL2SQL，所有查询走 SQLAlchemy 表达式。
 - [ ] 增加请求日志、工具调用日志和 session 追踪 ID。
