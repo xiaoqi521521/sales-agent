@@ -16,6 +16,7 @@ from app.tools.formatting import (
     tool_unknown_entity,
     translate_status,
 )
+from app.tools.logging import tool_call_finished, tool_call_started
 from app.tools.schemas import SalesQueryInput
 
 
@@ -30,6 +31,18 @@ def create_sales_query_tool(session: AsyncSession, service: SalesQueryService):
         limit: int = 20,
     ) -> str:
         """查询原始销售订单数据，适用于查具体订单、某客户订单、某时段订单列表。不适用于统计排名、趋势分析、图表生成、异常检测。"""
+        tool_name = "query_sales_orders"
+        started_at = tool_call_started(
+            tool_name,
+            {
+                "start_date": start_date,
+                "end_date": end_date,
+                "region_name": region_name,
+                "rep_name": rep_name,
+                "customer_name": customer_name,
+                "limit": limit,
+            },
+        )
         try:
             start, end = parse_required_range(start_date, end_date)
             region_name_value = blank_to_none(region_name)
@@ -38,11 +51,11 @@ def create_sales_query_tool(session: AsyncSession, service: SalesQueryService):
 
             region_id = await _resolve_region_id(service, session, region_name_value)
             if region_name_value and region_id is None:
-                return tool_unknown_entity("大区", region_name_value)
+                return tool_call_finished(tool_name, started_at, tool_unknown_entity("大区", region_name_value))
 
             rep_id = await _resolve_rep_id(service, session, rep_name_value)
             if rep_name_value and rep_id is None:
-                return tool_unknown_entity("销售员", rep_name_value)
+                return tool_call_finished(tool_name, started_at, tool_unknown_entity("销售员", rep_name_value))
 
             orders = await service.query_orders(session, rep_id=rep_id, region_id=region_id, start=start, end=end)
             if customer_name_value:
@@ -50,15 +63,19 @@ def create_sales_query_tool(session: AsyncSession, service: SalesQueryService):
 
             if not orders:
                 scope = _scope_text(region_name_value, rep_name_value)
-                return tool_empty_data(f"在 {start_date} 至 {end_date} 期间，{scope}暂无订单数据。")
+                return tool_call_finished(
+                    tool_name,
+                    started_at,
+                    tool_empty_data(f"在 {start_date} 至 {end_date} 期间，{scope}暂无订单数据。"),
+                )
 
             actual_limit = clamp(limit, 1, 50)
             limited = orders[:actual_limit]
-            return _format_orders(limited, len(orders), start, end, region_name_value)
+            return tool_call_finished(tool_name, started_at, _format_orders(limited, len(orders), start, end, region_name_value))
         except Exception as exc:
             if isinstance(exc, ValueError):
-                return date_error_message(exc)
-            return tool_execution_error()
+                return tool_call_finished(tool_name, started_at, date_error_message(exc))
+            return tool_call_finished(tool_name, started_at, tool_execution_error())
 
     return query_sales_orders
 

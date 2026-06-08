@@ -16,6 +16,7 @@ from app.tools.formatting import (
     tool_invalid_argument,
     tool_unknown_entity,
 )
+from app.tools.logging import tool_call_finished, tool_call_started
 from app.tools.schemas import SalesTrendInput
 
 
@@ -31,10 +32,23 @@ def create_sales_trend_tool(session: AsyncSession, service: SalesQueryService, t
         months: int = 6,
     ) -> str:
         """分析销售趋势，计算环比、同比和月度趋势。适用于增长率、同比去年、环比上期、近几个月走势等问题。"""
+        tool_name = "analyze_sales_trend"
+        started_at = tool_call_started(
+            tool_name,
+            {
+                "trend_type": trend_type,
+                "current_start": current_start,
+                "current_end": current_end,
+                "previous_start": previous_start,
+                "previous_end": previous_end,
+                "region_name": region_name,
+                "months": months,
+            },
+        )
         try:
             region_id, region_label = await _resolve_region(service, session, blank_to_none(region_name))
             if trend_type == "mom":
-                return await _month_over_month(
+                result = await _month_over_month(
                     service,
                     session,
                     current_start,
@@ -44,17 +58,20 @@ def create_sales_trend_tool(session: AsyncSession, service: SalesQueryService, t
                     region_id,
                     region_label,
                 )
+                return tool_call_finished(tool_name, started_at, result)
             if trend_type == "yoy":
-                return await _year_over_year(service, session, current_start, current_end, region_id, region_label)
+                result = await _year_over_year(service, session, current_start, current_end, region_id, region_label)
+                return tool_call_finished(tool_name, started_at, result)
             if trend_type == "monthly":
-                return await _monthly_trend(service, session, region_id, region_label, months, today)
-            return tool_invalid_argument("未知趋势类型，请使用 mom、yoy 或 monthly。")
+                result = await _monthly_trend(service, session, region_id, region_label, months, today)
+                return tool_call_finished(tool_name, started_at, result)
+            return tool_call_finished(tool_name, started_at, tool_invalid_argument("未知趋势类型，请使用 mom、yoy 或 monthly。"))
         except Exception as exc:
             if isinstance(exc, ValueError):
-                return date_error_message(exc)
+                return tool_call_finished(tool_name, started_at, date_error_message(exc))
             if isinstance(exc, ToolUnknownEntityError):
-                return exc.message
-            return tool_execution_error()
+                return tool_call_finished(tool_name, started_at, exc.message)
+            return tool_call_finished(tool_name, started_at, tool_execution_error())
 
     return analyze_sales_trend
 

@@ -1,5 +1,6 @@
 from functools import lru_cache
 from pathlib import Path
+from decimal import Decimal
 
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -21,6 +22,12 @@ class Settings(BaseSettings):
     jwt_secret_key: str = "dev-secret-change-me-use-env-in-production"
     jwt_algorithm: str = "HS256"
     jwt_expire_minutes: int = 60 * 24
+    token_input_price_per_1m: Decimal = Decimal("1")
+    token_cached_input_price_per_1m: Decimal = Decimal("0.2")
+    token_output_price_per_1m: Decimal = Decimal("2")
+    token_cost_currency: str = "CNY"
+    token_warn_total_threshold: int = 0
+    token_warn_cost_threshold: Decimal = Decimal("0")
 
     model_config = SettingsConfigDict(
         env_file=PROJECT_ROOT / ".env",

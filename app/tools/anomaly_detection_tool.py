@@ -7,6 +7,7 @@ from app.repositories.product_repository import ProductRepository
 from app.schemas.sales import AnomalyDTO
 from app.services.sales_query_service import SalesQueryService
 from app.tools.formatting import format_money, tool_execution_error
+from app.tools.logging import tool_call_finished, tool_call_started
 
 
 def create_anomaly_detection_tool(
@@ -19,6 +20,8 @@ def create_anomaly_detection_tool(
     @tool
     async def detect_sales_anomalies() -> str:
         """自动检测销售数据异常，包括大区订单量骤降、产品连续零销售、销售员退单率异常、销售员业绩骤降。适用于预警、风险排查、有没有异常等问题。"""
+        tool_name = "detect_sales_anomalies"
+        started_at = tool_call_started(tool_name, {})
         try:
             anomalies: list[AnomalyDTO] = []
             anomalies.extend(await _detect_region_drop(session, service, today, trend_drop_threshold))
@@ -26,11 +29,11 @@ def create_anomaly_detection_tool(
             anomalies.extend(await _detect_high_refund_reps(session, service, today))
             anomalies.extend(await _detect_rep_performance_drop(session, service, today))
             if not anomalies:
-                return "当前数据未检测到明显异常，销售数据运行正常。"
+                return tool_call_finished(tool_name, started_at, "当前数据未检测到明显异常，销售数据运行正常。")
             anomalies.sort(key=lambda item: {"HIGH": 0, "MEDIUM": 1, "LOW": 2}.get(item.severity, 3))
-            return _format_anomalies(anomalies)
+            return tool_call_finished(tool_name, started_at, _format_anomalies(anomalies))
         except Exception:
-            return tool_execution_error()
+            return tool_call_finished(tool_name, started_at, tool_execution_error())
 
     return detect_sales_anomalies
 

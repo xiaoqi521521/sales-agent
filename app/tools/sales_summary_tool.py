@@ -15,6 +15,7 @@ from app.tools.formatting import (
     tool_invalid_argument,
     tool_unknown_entity,
 )
+from app.tools.logging import tool_call_finished, tool_call_started
 from app.tools.schemas import SalesSummaryInput
 
 
@@ -28,22 +29,41 @@ def create_sales_summary_tool(session: AsyncSession, service: SalesQueryService)
         top_n: int = 5,
     ) -> str:
         """计算销售汇总统计，包括总销售额、销售员排名、大区排名、产品排名、Top N 分析。不适用于查询具体订单详情。"""
+        tool_name = "calculate_sales_summary"
+        started_at = tool_call_started(
+            tool_name,
+            {
+                "summary_type": summary_type,
+                "start_date": start_date,
+                "end_date": end_date,
+                "region_name": region_name,
+                "top_n": top_n,
+            },
+        )
         try:
             start, end = parse_required_range(start_date, end_date)
             region_name_value = blank_to_none(region_name)
             if summary_type == "total":
-                return await _sales_total(service, session, start, end, region_name_value)
+                result = await _sales_total(service, session, start, end, region_name_value)
+                return tool_call_finished(tool_name, started_at, result)
             if summary_type == "rep_ranking":
-                return await _rep_ranking(service, session, start, end, region_name_value, top_n)
+                result = await _rep_ranking(service, session, start, end, region_name_value, top_n)
+                return tool_call_finished(tool_name, started_at, result)
             if summary_type == "region_ranking":
-                return await _region_ranking(service, session, start, end)
+                result = await _region_ranking(service, session, start, end)
+                return tool_call_finished(tool_name, started_at, result)
             if summary_type == "product_ranking":
-                return await _product_ranking(service, session, start, end, top_n)
-            return tool_invalid_argument("未知汇总类型，请使用 total、rep_ranking、region_ranking 或 product_ranking。")
+                result = await _product_ranking(service, session, start, end, top_n)
+                return tool_call_finished(tool_name, started_at, result)
+            return tool_call_finished(
+                tool_name,
+                started_at,
+                tool_invalid_argument("未知汇总类型，请使用 total、rep_ranking、region_ranking 或 product_ranking。"),
+            )
         except Exception as exc:
             if isinstance(exc, ValueError):
-                return date_error_message(exc)
-            return tool_execution_error()
+                return tool_call_finished(tool_name, started_at, date_error_message(exc))
+            return tool_call_finished(tool_name, started_at, tool_execution_error())
 
     return calculate_sales_summary
 

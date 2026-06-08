@@ -463,11 +463,17 @@ uv run pytest tests/integration/test_auth.py tests/integration/test_data_permiss
 
 - `app/core/errors.py`
 - `app/core/logging.py`
+- `app/core/request_context.py`
+- `app/core/token_usage.py`
+- `app/api/middleware.py`
 - `app/services/cache_service.py`
-- `app/services/token_usage_service.py`
 - `app/schemas/common.py`
 - `tests/unit/test_input_validation.py`
+- `tests/unit/test_token_usage.py`
 - `tests/integration/test_error_boundaries.py`
+- `tests/integration/test_logging_and_trace.py`
+- `tests/integration/test_tool_logging.py`
+- `tests/integration/test_agent_token_logging.py`
 - `tests/integration/test_cache_service.py`
 
 **任务：**
@@ -476,8 +482,8 @@ uv run pytest tests/integration/test_auth.py tests/integration/test_data_permiss
 - [x] 统一工具错误返回结构。
 - [ ] 增加参数白名单校验，特别是排序字段、时间范围、枚举条件。
 - [ ] 避免 NL2SQL，所有查询走 SQLAlchemy 表达式。
-- [ ] 增加请求日志、工具调用日志和 session 追踪 ID。
-- [ ] 增加 token 使用记录接口或内部服务。
+- [x] 增加请求日志、工具调用日志和 session 追踪 ID。
+- [x] 增加 token 使用统计与成本估算内部 helper，控制台打印 token 用量和费用。
 - [ ] 为高频统计查询增加可选 Redis 缓存。
 
 **验收命令：**

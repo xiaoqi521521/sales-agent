@@ -15,6 +15,7 @@ from app.tools.formatting import (
     tool_invalid_argument,
     tool_unknown_entity,
 )
+from app.tools.logging import tool_call_finished, tool_call_started
 from app.tools.schemas import SalesChartInput
 
 
@@ -30,23 +31,39 @@ def create_chart_generator_tool(session: AsyncSession, service: SalesQueryServic
         title: str | None = None,
     ) -> str:
         """生成销售图表的 ECharts JSON 数据。适用于折线图、柱状图、饼图、趋势图、排行榜图和销售占比图。"""
+        tool_name = "generate_sales_chart"
+        started_at = tool_call_started(
+            tool_name,
+            {
+                "chart_type": chart_type,
+                "dimension": dimension,
+                "start_date": start_date,
+                "end_date": end_date,
+                "months": months,
+                "region_name": region_name,
+                "title": title,
+            },
+        )
         try:
             if chart_type == "line":
-                return await _line_chart(service, session, today, months, blank_to_none(region_name), title)
+                result = await _line_chart(service, session, today, months, blank_to_none(region_name), title)
+                return tool_call_finished(tool_name, started_at, result)
             start, end = parse_required_range(start_date, end_date)
             if chart_type == "bar":
                 if dimension not in {"region", "rep"}:
-                    return tool_invalid_argument("柱状图支持的维度为 region 或 rep。")
-                return await _bar_chart(service, session, dimension, start, end, title)
+                    return tool_call_finished(tool_name, started_at, tool_invalid_argument("柱状图支持的维度为 region 或 rep。"))
+                result = await _bar_chart(service, session, dimension, start, end, title)
+                return tool_call_finished(tool_name, started_at, result)
             if chart_type == "pie":
                 if dimension not in {"region", "category"}:
-                    return tool_invalid_argument("饼图支持的维度为 region 或 category。")
-                return await _pie_chart(service, session, dimension, start, end, title)
-            return tool_invalid_argument("未知图表类型，请使用 line、bar 或 pie。")
+                    return tool_call_finished(tool_name, started_at, tool_invalid_argument("饼图支持的维度为 region 或 category。"))
+                result = await _pie_chart(service, session, dimension, start, end, title)
+                return tool_call_finished(tool_name, started_at, result)
+            return tool_call_finished(tool_name, started_at, tool_invalid_argument("未知图表类型，请使用 line、bar 或 pie。"))
         except Exception as exc:
             if isinstance(exc, ValueError):
-                return date_error_message(exc)
-            return tool_execution_error()
+                return tool_call_finished(tool_name, started_at, date_error_message(exc))
+            return tool_call_finished(tool_name, started_at, tool_execution_error())
 
     return generate_sales_chart
 

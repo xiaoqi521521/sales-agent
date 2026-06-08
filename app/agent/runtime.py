@@ -7,16 +7,20 @@ from typing import Any
 
 from langchain.agents import create_agent
 from langchain.chat_models import init_chat_model
+from langchain_core.callbacks import get_usage_metadata_callback
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.agent.memory import ChatMemoryService, StoredMessage
 from app.agent.prompts import build_system_prompt
 from app.core.auth_context import CurrentUser
 from app.core.config import get_settings
+from app.core.logging import format_kv, get_logger
+from app.core.token_usage import TokenUsage, log_token_usage, summarize_usage_metadata
 from app.tools.registry import create_sales_tools
 
 
 AgentFactory = Callable[..., Any]
+logger = get_logger("sales_agent.agent")
 
 
 @dataclass(frozen=True)
@@ -95,16 +99,40 @@ class SalesAgentRuntime:
         """带追踪的对话接口，返回完整结果（回答 + 工具调用记录 + 数据引用）。"""
         normalized_session_id = self._validate_session_id(session_id)
         normalized_message = self._validate_message(message)
+        started_at = perf_counter()
+        settings = get_settings()
+        logger.info(
+            format_kv(
+                "agent_run_started",
+                sessionId=normalized_session_id,
+                messageLength=len(normalized_message),
+                model=settings.openai_model,
+            )
+        )
 
         # 构建 Agent 输入：历史上下文 + 当前用户消息
         payload, config = await self._build_agent_input(normalized_session_id, normalized_message)
 
-        # 调用 Agent（大模型决策 + 自动调用工具）
-        result = await self.agent.ainvoke(payload, config=config)
+        try:
+            # 调用 Agent（大模型决策 + 自动调用工具）
+            with get_usage_metadata_callback() as usage_callback:
+                result = await self.agent.ainvoke(payload, config=config)
+        except Exception:
+            logger.exception(format_kv("agent_run_failed", sessionId=normalized_session_id))
+            raise
         # 提取 AI 最终回答
         answer = self._extract_answer(result)
         # 提取工具调用的中间结果
         tool_messages = self._extract_tool_messages(result)
+        usage = summarize_usage_metadata(usage_callback.usage_metadata)
+        if usage.total_tokens <= 0:
+            usage = self._extract_usage(result)
+        log_token_usage(
+            session_id=normalized_session_id,
+            model_name=settings.openai_model,
+            usage=usage,
+            settings=settings,
+        )
         # 将本轮完整对话（用户+工具+AI）持久化到记忆
         await self.memory_service.append_turn(
             self.session,
@@ -112,6 +140,16 @@ class SalesAgentRuntime:
             normalized_message,
             answer,
             tool_messages=tool_messages,
+        )
+        duration_ms = int((perf_counter() - started_at) * 1000)
+        logger.info(
+            format_kv(
+                "agent_run_completed",
+                sessionId=normalized_session_id,
+                model=settings.openai_model,
+                durationMs=duration_ms,
+                toolCalls=len(tool_messages),
+            )
         )
         return AgentRunResult(reply=answer, tool_calls=self._to_tool_traces(tool_messages))
 
@@ -136,6 +174,13 @@ class SalesAgentRuntime:
             if answer:
                 yield AgentStreamEvent(event="token", data={"content": answer})
             duration_ms = int((perf_counter() - started_at) * 1000)
+            settings = get_settings()
+            log_token_usage(
+                session_id=normalized_session_id,
+                model_name=settings.openai_streaming_model,
+                usage=self._extract_usage(result),
+                settings=settings,
+            )
             await self.memory_service.append_turn(
                 self.session,
                 normalized_session_id,
@@ -191,6 +236,13 @@ class SalesAgentRuntime:
         # 流式结束：拼接 token 得到最终回答，持久化并发送 done 事件
         answer = "".join(answer_parts) or latest_model_answer
         duration_ms = int((perf_counter() - started_at) * 1000)
+        settings = get_settings()
+        log_token_usage(
+            session_id=normalized_session_id,
+            model_name=settings.openai_streaming_model,
+            usage=TokenUsage(),
+            settings=settings,
+        )
         await self.memory_service.append_turn(
             self.session,
             normalized_session_id,
@@ -268,6 +320,16 @@ class SalesAgentRuntime:
             if tool_message is not None:
                 tool_messages.append(tool_message)
         return tool_messages
+
+    def _extract_usage(self, result: Any) -> TokenUsage:
+        messages = result.get("messages", []) if isinstance(result, dict) else []
+        for message in reversed(messages):
+            usage_metadata = getattr(message, "usage_metadata", None)
+            if isinstance(usage_metadata, dict):
+                usage = summarize_usage_metadata(usage_metadata)
+                if usage.total_tokens > 0:
+                    return usage
+        return TokenUsage()
 
     def _to_stored_tool_message(self, message: Any) -> StoredMessage | None:
         """将 LangChain 的 tool 类型消息转换为 StoredMessage。
