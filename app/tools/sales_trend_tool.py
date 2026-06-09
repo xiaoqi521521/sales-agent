@@ -7,7 +7,6 @@ from app.services.sales_query_service import SalesQueryService
 from app.tools.formatting import (
     ToolUnknownEntityError,
     blank_to_none,
-    clamp,
     date_error_message,
     format_money,
     parse_required_range,
@@ -142,7 +141,7 @@ async def _year_over_year(service: SalesQueryService, session: AsyncSession, cur
 
 
 async def _monthly_trend(service: SalesQueryService, session: AsyncSession, region_id, region_label: str, months: int, today):
-    month_count = clamp(months, 1, 24)
+    month_count = months
     trend = await service.query_monthly_trend(session, region_id, month_count, today=today)
     if not trend:
         return tool_empty_data(f"近 {month_count} 个月，{region_label}暂无趋势数据。")

@@ -2,6 +2,7 @@ import json
 from datetime import date
 from decimal import Decimal
 
+from pydantic import ValidationError
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 import pytest
 
@@ -56,7 +57,7 @@ async def test_query_and_summary_tools_return_readable_sales_text():
             {
                 "start_date": "2026-01-01",
                 "end_date": "2026-01-31",
-                "region_name": "East",
+                "region_name": "华东区",
                 "rep_name": "Zhang Wei",
                 "limit": 10,
             }
@@ -101,7 +102,7 @@ async def test_trend_chart_and_anomaly_tools_match_reference_outputs():
                 "current_end": "2026-01-31",
                 "previous_start": "2025-12-01",
                 "previous_end": "2025-12-31",
-                "region_name": "East",
+                "region_name": "华东区",
                 "months": 2,
             }
         )
@@ -144,10 +145,10 @@ async def test_sales_tools_return_stable_boundary_messages():
     async with session_factory() as session:
         session.add_all(
             [
-                SalesRegion(id=1, name="East"),
-                SalesRep(id=1, name="Zhang Wei", region_id=1, role="SALES_REP", email="zhangwei@example.com"),
-            ]
-        )
+                    SalesRegion(id=1, name="华东区"),
+                    SalesRep(id=1, name="Zhang Wei", region_id=1, role="SALES_REP", email="zhangwei@example.com"),
+                ]
+            )
         await session.commit()
 
         tools = {tool.name: tool for tool in create_sales_tools(session=session, today=date(2026, 2, 15))}
@@ -156,7 +157,7 @@ async def test_sales_tools_return_stable_boundary_messages():
             {
                 "start_date": "2026-01-01",
                 "end_date": "2026-01-31",
-                "region_name": "East",
+                "region_name": "华东区",
                 "rep_name": "",
                 "limit": 10,
             }
@@ -164,39 +165,36 @@ async def test_sales_tools_return_stable_boundary_messages():
         assert empty_orders_text.startswith("TOOL_EMPTY_DATA")
         assert "可能原因" in empty_orders_text
 
-        invalid_date_text = await tools["query_sales_orders"].ainvoke(
-            {
-                "start_date": "2026/01/01",
-                "end_date": "2026-01-31",
-                "region_name": "",
-                "rep_name": "",
-                "limit": 10,
-            }
-        )
-        assert invalid_date_text.startswith("TOOL_INVALID_ARGUMENT")
-        assert "yyyy-MM-dd" in invalid_date_text
+        with pytest.raises(ValidationError):
+            await tools["query_sales_orders"].ainvoke(
+                {
+                    "start_date": "2026/01/01",
+                    "end_date": "2026-01-31",
+                    "region_name": "",
+                    "rep_name": "",
+                    "limit": 10,
+                }
+            )
 
-        reversed_date_text = await tools["calculate_sales_summary"].ainvoke(
-            {
-                "summary_type": "rep_ranking",
-                "start_date": "2026-02-01",
-                "end_date": "2026-01-01",
-                "region_name": "",
-                "top_n": 5,
-            }
-        )
-        assert reversed_date_text.startswith("TOOL_INVALID_ARGUMENT")
-        assert "开始日期不能晚于结束日期" in reversed_date_text
+        with pytest.raises(ValidationError):
+            await tools["calculate_sales_summary"].ainvoke(
+                {
+                    "summary_type": "rep_ranking",
+                    "start_date": "2026-02-01",
+                    "end_date": "2026-01-01",
+                    "region_name": "",
+                    "top_n": 5,
+                }
+            )
 
-        unknown_region_text = await tools["analyze_sales_trend"].ainvoke(
-            {
-                "trend_type": "monthly",
-                "region_name": "Unknown Region",
-                "months": 3,
-            }
-        )
-        assert unknown_region_text.startswith("TOOL_UNKNOWN_ENTITY")
-        assert "未找到大区：Unknown Region" in unknown_region_text
+        with pytest.raises(ValidationError):
+            await tools["analyze_sales_trend"].ainvoke(
+                {
+                    "trend_type": "monthly",
+                    "region_name": "Unknown Region",
+                    "months": 3,
+                }
+            )
 
         unknown_rep_text = await tools["query_sales_orders"].ainvoke(
             {
@@ -271,8 +269,8 @@ async def test_sales_tools_hide_internal_execution_errors():
 
 def _sample_rows():
     return [
-        SalesRegion(id=1, name="East"),
-        SalesRegion(id=2, name="North"),
+        SalesRegion(id=1, name="华东区"),
+        SalesRegion(id=2, name="华北区"),
         SalesRep(id=1, name="Zhang Wei", region_id=1, role="SALES_REP", email="zhangwei@example.com"),
         SalesRep(id=2, name="Wang Fang", region_id=1, role="SALES_REP", email="wangfang@example.com"),
         SalesRep(id=3, name="Zhang Lei", region_id=2, role="SALES_REP", email="zhanglei@example.com"),

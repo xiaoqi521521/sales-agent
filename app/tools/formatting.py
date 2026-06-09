@@ -19,10 +19,6 @@ def blank_to_none(value: str | None) -> str | None:
     return stripped or None
 
 
-def clamp(value: int, minimum: int, maximum: int) -> int:
-    return min(max(value, minimum), maximum)
-
-
 def format_money(value: Decimal) -> str:
     return f"¥{value:,.0f}"
 

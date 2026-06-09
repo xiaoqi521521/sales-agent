@@ -7,7 +7,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.services.sales_query_service import SalesQueryService
 from app.tools.formatting import (
     blank_to_none,
-    clamp,
     date_error_message,
     format_money,
     parse_required_range,
@@ -69,8 +68,7 @@ def create_sales_query_tool(session: AsyncSession, service: SalesQueryService):
                     tool_empty_data(f"在 {start_date} 至 {end_date} 期间，{scope}暂无订单数据。"),
                 )
 
-            actual_limit = clamp(limit, 1, 50)
-            limited = orders[:actual_limit]
+            limited = orders[:limit]
             return tool_call_finished(tool_name, started_at, _format_orders(limited, len(orders), start, end, region_name_value))
         except Exception as exc:
             if isinstance(exc, ValueError):

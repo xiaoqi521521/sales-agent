@@ -453,54 +453,166 @@ uv run pytest tests/integration/test_auth.py tests/integration/test_data_permiss
 
 ---
 
-### Phase 8：异常边界、缓存、日志、成本与安全
+### Phase 8：工具异常与边界处理
 
-**目标：** 补齐生产化基础能力。
+**目标：** 让工具、API 和 Agent 在数据为空、参数非法、工具异常、模型异常时都有稳定、可预期的响应。
 
-**加载参考：** `22`、`23`、`25`、`26`
+**加载参考：** `22`
 
 **主要文件：**
 
 - `app/core/errors.py`
-- `app/core/logging.py`
-- `app/core/request_context.py`
-- `app/core/token_usage.py`
-- `app/api/middleware.py`
-- `app/services/cache_service.py`
+- `app/tools/formatting.py`
+- `app/tools/*_tool.py`
 - `app/schemas/common.py`
-- `tests/unit/test_input_validation.py`
-- `tests/unit/test_token_usage.py`
 - `tests/integration/test_error_boundaries.py`
-- `tests/integration/test_logging_and_trace.py`
-- `tests/integration/test_tool_logging.py`
-- `tests/integration/test_agent_token_logging.py`
-- `tests/integration/test_cache_service.py`
+- `tests/integration/test_sales_tools.py`
+- `tests/unit/test_agent_prompt.py`
 
 **任务：**
 
 - [x] 统一 API 错误返回结构。
 - [x] 统一工具错误返回结构。
-- [ ] 增加参数白名单校验，特别是排序字段、时间范围、枚举条件。
-- [ ] 避免 NL2SQL，所有查询走 SQLAlchemy 表达式。
-- [x] 增加请求日志、工具调用日志和 session 追踪 ID。
-- [x] 增加 token 使用统计与成本估算内部 helper，控制台打印 token 用量和费用。
-- [ ] 为高频统计查询增加可选 Redis 缓存。
+- [x] 工具数据为空时返回稳定的 `TOOL_EMPTY_DATA` 文本。
+- [x] 工具参数非法、日期范围非法时返回稳定边界提示。
+- [x] 工具内部异常不向用户暴露堆栈、数据库连接串或敏感信息。
+- [x] Agent 超出能力范围时由系统提示词约束，不伪造不存在的数据能力。
 
 **验收命令：**
 
 ```bash
-uv run pytest tests/unit/test_input_validation.py tests/integration/test_error_boundaries.py tests/integration/test_cache_service.py -v
+uv run pytest tests/integration/test_error_boundaries.py tests/integration/test_sales_tools.py tests/unit/test_agent_prompt.py -v
 ```
 
 **完成标准：**
 
 - 数据为空、参数非法、工具异常、模型异常都有稳定响应。
-- 安全测试不能通过字符串参数影响 SQL 结构。
-- Redis 不可用时系统能降级为无缓存运行。
+- 错误响应不泄露内部堆栈、数据库密码、API key 或 JWT。
+- 工具错误文本能被 Agent 理解并转化为面向用户的自然语言回答。
 
 ---
 
-### Phase 9：端到端场景验收
+### Phase 9：日志追踪与 Token 成本控制
+
+**目标：** 在不新增数据库表、不持久化成本记录的前提下，提供控制台级日志追踪、工具调用追踪和 token 成本估算。
+
+**加载参考：** `23`，如原文信息不足则回看 `22`
+
+**主要文件：**
+
+- `app/core/logging.py`
+- `app/core/request_context.py`
+- `app/core/token_usage.py`
+- `app/api/middleware.py`
+- `app/agent/runtime.py`
+- `app/tools/logging.py`
+- `tests/unit/test_token_usage.py`
+- `tests/integration/test_logging_and_trace.py`
+- `tests/integration/test_tool_logging.py`
+- `tests/integration/test_agent_token_logging.py`
+- `docs/specs/project/002-logging-and-token-cost-control.md`
+- `docs/process/009-logging-and-token-cost-control-process.md`
+
+**任务：**
+
+- [x] 增加请求日志、请求分隔符和 `X-Trace-Id` 响应头。
+- [x] 使用 `ContextVar` 保存当前请求 traceId，并自动注入结构化日志。
+- [x] 增加 Agent 开始、完成、异常日志。
+- [x] 增加工具调用开始、完成、失败日志。
+- [x] 使用 LangChain usage metadata 统计 token 用量。
+- [x] 增加 token 使用统计与成本估算内部 helper，控制台打印 token 用量和费用。
+- [x] 增加 MySQL `caching_sha2_password` 认证所需的 `cryptography` 依赖。
+
+**验收命令：**
+
+```bash
+uv run pytest tests/unit/test_token_usage.py tests/integration/test_logging_and_trace.py tests/integration/test_tool_logging.py tests/integration/test_agent_token_logging.py -v
+```
+
+**完成标准：**
+
+- 每个请求能在控制台通过分隔符和 traceId 区分日志块。
+- Agent、Tool、Token usage 日志能串联到同一个 traceId。
+- token 成本按输入、缓存命中输入、输出三种价格分别估算。
+- token usage 获取失败不阻断用户请求。
+
+---
+
+### Phase 10：Redis 缓存层
+
+**目标：** 为高频统计查询增加可选缓存，降低重复查询数据库和重复计算的成本，同时保证 Redis 不可用时系统能降级为无缓存运行。
+
+**加载参考：** `25`
+
+**主要文件：**
+
+- `app/core/config.py`
+- `app/services/cache_service.py`
+- `app/services/sales_query_service.py`
+- `tests/integration/test_cache_service.py`
+- `tests/integration/test_sales_query_service.py`
+
+**任务：**
+
+- [ ] 明确适合缓存的查询：总销售额、销售员排行、大区排行、产品排行、趋势统计等高频统计结果。
+- [ ] 设计缓存 key，纳入日期范围、查询维度、角色权限范围、region_id、rep_id 等隔离字段。
+- [ ] 增加可选 Redis 配置；未配置或 Redis 不可用时自动降级为直查数据库。
+- [ ] 在 Service 层接入缓存，不让 Tool 层直接关心缓存实现。
+- [ ] 设置合理 TTL，避免测试数据或业务数据变化后长时间返回旧结果。
+- [ ] 增加缓存命中、未命中、降级场景测试。
+
+**验收命令：**
+
+```bash
+uv run pytest tests/integration/test_cache_service.py tests/integration/test_sales_query_service.py -v
+```
+
+**完成标准：**
+
+- Redis 可用时重复统计查询能命中缓存。
+- Redis 不可用时系统能继续返回正确结果。
+- 不同角色、不同大区、不同销售员之间不会共享越权缓存。
+
+---
+
+### Phase 11：SQL 注入防护与参数白名单
+
+**目标：** 对工具输入和查询参数做安全约束，确保所有查询走 SQLAlchemy 表达式和参数绑定，不通过自然语言或字符串参数改变 SQL 结构。
+
+**加载参考：** `26`
+
+**主要文件：**
+
+- `app/tools/schemas.py`
+- `app/tools/formatting.py`
+- `app/services/sales_query_service.py`
+- `app/repositories/*_repository.py`
+- `tests/unit/test_input_validation.py`
+- `tests/integration/test_sales_tools.py`
+- `tests/integration/test_sales_repositories.py`
+
+**任务：**
+
+- [x] 增加参数白名单校验，特别是日期格式、大区名称、图表类型(line/bar/pie)、查询维度(region/rep/category)、TopN范围等。
+- [x] 当前 Repository 查询已使用 SQLAlchemy 表达式和参数绑定，不把工具字符串参数拼接进 SQL。
+- [x] 增加恶意字符串测试，例如 SQL 片段、注释符、分号、多语句输入。
+- [x] 验证非法参数只返回稳定错误，不影响数据库结构和查询范围。
+
+**验收命令：**
+
+```bash
+uv run pytest tests/unit/test_input_validation.py tests/integration/test_sales_tools.py tests/integration/test_sales_repositories.py -v
+```
+
+**完成标准：**
+
+- 安全测试不能通过字符串参数影响 SQL 结构。
+- 工具参数非法时返回稳定错误，不进入危险查询路径。
+- Repository 层保持参数绑定和 SQLAlchemy 表达式查询风格。
+
+---
+
+### Phase 12：端到端场景验收
 
 **目标：** 用参考文献中的业务场景验证完整链路。
 
@@ -612,13 +724,13 @@ Agent 阶段依赖：
 
 ### M5：具备生产基础防护
 
-覆盖 Phase 7、Phase 8。
+覆盖 Phase 7、Phase 8、Phase 9、Phase 10、Phase 11。
 
-验收：权限隔离、安全校验、错误边界、日志和缓存策略可用。
+验收：权限隔离、错误边界、日志追踪、token 成本估算、缓存策略和 SQL 注入防护可用。
 
 ### M6：参考场景全部通过
 
-覆盖 Phase 9。
+覆盖 Phase 12。
 
 验收：简单追问、多步推理、图表、预警、权限隔离等 e2e 场景通过。
 
@@ -634,6 +746,6 @@ Agent 阶段依赖：
 2. `docs/specs/002-architecture-and-module-boundaries.md`
 3. `docs/specs/003-api-contract.md`
 4. `docs/plans/002-phase-1-fastapi-foundation.md`
-5. 按 Phase 1 到 Phase 9 逐步推进
+5. 按 Phase 1 到 Phase 12 逐步推进
 
 这样可以避免一次性加载所有参考文献，也能保证每个阶段都有独立、可验证的成果。

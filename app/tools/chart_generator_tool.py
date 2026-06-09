@@ -7,7 +7,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.services.sales_query_service import SalesQueryService
 from app.tools.formatting import (
     blank_to_none,
-    clamp,
     date_error_message,
     parse_required_range,
     tool_empty_data,
@@ -72,7 +71,7 @@ async def _line_chart(service: SalesQueryService, session: AsyncSession, today, 
     region_id = await service.get_region_id_by_name(session, region_name) if region_name else None
     if region_name and region_id is None:
         return tool_unknown_entity("大区", region_name)
-    data = await service.query_monthly_trend(session, region_id, clamp(months, 1, 24), today=today)
+    data = await service.query_monthly_trend(session, region_id, months, today=today)
     if not data:
         return tool_empty_data("暂无销售趋势数据，无法生成图表。")
     option = {

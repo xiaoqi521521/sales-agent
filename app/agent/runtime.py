@@ -8,6 +8,7 @@ from typing import Any
 from langchain.agents import create_agent
 from langchain.chat_models import init_chat_model
 from langchain_core.callbacks import get_usage_metadata_callback
+from pydantic import ValidationError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.agent.memory import ChatMemoryService, StoredMessage
@@ -16,6 +17,7 @@ from app.core.auth_context import CurrentUser
 from app.core.config import get_settings
 from app.core.logging import format_kv, get_logger
 from app.core.token_usage import TokenUsage, log_token_usage, summarize_usage_metadata
+from app.tools.formatting import tool_invalid_argument
 from app.tools.registry import create_sales_tools
 
 
@@ -117,6 +119,9 @@ class SalesAgentRuntime:
             # 调用 Agent（大模型决策 + 自动调用工具）
             with get_usage_metadata_callback() as usage_callback:
                 result = await self.agent.ainvoke(payload, config=config)
+        except ValidationError:
+            logger.warning(format_kv("agent_tool_parameter_validation_failed", sessionId=normalized_session_id))
+            return AgentRunResult(reply=_tool_parameter_validation_message())
         except Exception:
             logger.exception(format_kv("agent_run_failed", sessionId=normalized_session_id))
             raise
@@ -168,7 +173,12 @@ class SalesAgentRuntime:
 
         # 降级处理：若 Agent 不支持流式（astream），退化为普通 ainvoke 一次性返回
         if not hasattr(self.agent, "astream"):
-            result = await self.agent.ainvoke(payload, config=config)
+            try:
+                result = await self.agent.ainvoke(payload, config=config)
+            except ValidationError:
+                logger.warning(format_kv("agent_tool_parameter_validation_failed", sessionId=normalized_session_id))
+                yield AgentStreamEvent(event="error", data={"message": _tool_parameter_validation_message()})
+                return
             answer = self._extract_answer(result)
             tool_messages = self._extract_tool_messages(result)
             if answer:
@@ -192,46 +202,51 @@ class SalesAgentRuntime:
             return
 
         # 流式模式：同时接收 messages（逐 token）和 updates（节点完成事件）
-        async for chunk in self.agent.astream(
-            payload,
-            config=config,
-            stream_mode=["messages", "updates"],  # messages=逐 token，updates=节点状态变更
-            version="v2",
-        ):
-            chunk_type = chunk.get("type") if isinstance(chunk, dict) else None
+        try:
+            async for chunk in self.agent.astream(
+                payload,
+                config=config,
+                stream_mode=["messages", "updates"],  # messages=逐 token，updates=节点状态变更
+                version="v2",
+            ):
+                chunk_type = chunk.get("type") if isinstance(chunk, dict) else None
 
-            if chunk_type == "messages":
-                # 逐 token 推送：实时发给前端展示打字效果
-                token, _metadata = chunk.get("data", (None, None))
-                text = self._extract_token_text(token)
-                if text:
-                    answer_parts.append(text)
-                    yield AgentStreamEvent(event="token", data={"content": text})
+                if chunk_type == "messages":
+                    # 逐 token 推送：实时发给前端展示打字效果
+                    token, _metadata = chunk.get("data", (None, None))
+                    text = self._extract_token_text(token)
+                    if text:
+                        answer_parts.append(text)
+                        yield AgentStreamEvent(event="token", data={"content": text})
 
-            elif chunk_type == "updates":
-                # 节点更新事件：捕获工具调用结果和模型完整输出
-                for source, update in chunk.get("data", {}).items():
-                    messages = update.get("messages", []) if isinstance(update, dict) else []
-                    if not messages:
-                        continue
-                    latest_message = messages[-1]
-                    if source == "tools" or getattr(latest_message, "type", None) == "tool":
-                        # 工具节点完成：提取工具调用结果，推送 tool 事件给前端
-                        tool_message = self._to_stored_tool_message(latest_message)
-                        if tool_message is not None:
-                            tool_messages.append(tool_message)
-                            yield AgentStreamEvent(
-                                event="tool",
-                                data={
-                                    "name": tool_message.name or "unknown_tool",
-                                    "summary": tool_message.content,
-                                },
-                            )
-                    elif source == "model":
-                        # 模型节点完成：记录完整回答作为兜底
-                        content = getattr(latest_message, "content", "")
-                        if isinstance(content, str) and content:
-                            latest_model_answer = content
+                elif chunk_type == "updates":
+                    # 节点更新事件：捕获工具调用结果和模型完整输出
+                    for source, update in chunk.get("data", {}).items():
+                        messages = update.get("messages", []) if isinstance(update, dict) else []
+                        if not messages:
+                            continue
+                        latest_message = messages[-1]
+                        if source == "tools" or getattr(latest_message, "type", None) == "tool":
+                            # 工具节点完成：提取工具调用结果，推送 tool 事件给前端
+                            tool_message = self._to_stored_tool_message(latest_message)
+                            if tool_message is not None:
+                                tool_messages.append(tool_message)
+                                yield AgentStreamEvent(
+                                    event="tool",
+                                    data={
+                                        "name": tool_message.name or "unknown_tool",
+                                        "summary": tool_message.content,
+                                    },
+                                )
+                        elif source == "model":
+                            # 模型节点完成：记录完整回答作为兜底
+                            content = getattr(latest_message, "content", "")
+                            if isinstance(content, str) and content:
+                                latest_model_answer = content
+        except ValidationError:
+            logger.warning(format_kv("agent_tool_parameter_validation_failed", sessionId=normalized_session_id))
+            yield AgentStreamEvent(event="error", data={"message": _tool_parameter_validation_message()})
+            return
 
         # 流式结束：拼接 token 得到最终回答，持久化并发送 done 事件
         answer = "".join(answer_parts) or latest_model_answer
@@ -398,3 +413,7 @@ class SalesAgentRuntime:
                 "dataReferences": [],                  # 数据来源引用（预留字段）
             },
         )
+
+
+def _tool_parameter_validation_message() -> str:
+    return tool_invalid_argument("工具参数不合法，请检查日期格式、大区名称、图表类型、维度或数值范围。")

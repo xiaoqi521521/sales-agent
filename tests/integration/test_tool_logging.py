@@ -18,7 +18,7 @@ async def test_tool_invocation_logs_started_and_failed_events(caplog):
 
     session_factory = async_sessionmaker(engine, expire_on_commit=False)
     async with session_factory() as session:
-        session.add(SalesRegion(id=1, name="East"))
+        session.add(SalesRegion(id=1, name="华东区"))
         await session.commit()
         tools = {tool.name: tool for tool in create_sales_tools(session=session, today=date(2026, 2, 15))}
 
@@ -26,7 +26,7 @@ async def test_tool_invocation_logs_started_and_failed_events(caplog):
             {
                 "start_date": "2026-01-01",
                 "end_date": "2026-01-31",
-                "region_name": "East",
+                "region_name": "华东区",
                 "rep_name": "",
                 "limit": 10,
             }
@@ -40,4 +40,3 @@ async def test_tool_invocation_logs_started_and_failed_events(caplog):
     assert "toolName=query_sales_orders" in caplog.text
     assert "errorCode=TOOL_EMPTY_DATA" in caplog.text
     assert "resultLength=" in caplog.text
-

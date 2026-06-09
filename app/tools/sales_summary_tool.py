@@ -6,7 +6,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.services.sales_query_service import SalesQueryService
 from app.tools.formatting import (
     blank_to_none,
-    clamp,
     date_error_message,
     format_money,
     parse_required_range,
@@ -87,7 +86,7 @@ async def _rep_ranking(
     region_name: str | None,
     top_n: int,
 ) -> str:
-    n = clamp(top_n, 1, 20)
+    n = top_n
     if service.current_user and service.current_user.is_sales_rep:
         return (
             "NO_PERMISSION_REP_RANKING\n"
@@ -131,7 +130,7 @@ async def _region_ranking(service: SalesQueryService, session: AsyncSession, sta
 
 async def _product_ranking(service: SalesQueryService, session: AsyncSession, start, end, top_n: int) -> str:
     is_worst = top_n < 0
-    n = clamp(abs(top_n), 1, 20)
+    n = abs(top_n)
     products = await service.query_product_ranking(session, start, end, 100 if is_worst else n)
     if is_worst:
         products = list(reversed(products[-n:]))

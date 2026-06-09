@@ -142,7 +142,7 @@ async def test_sales_tools_apply_current_user_permission_scope():
             {
                 "start_date": "2026-01-01",
                 "end_date": "2026-01-31",
-                "region_name": "North",
+                "region_name": "华北区",
                 "rep_name": "",
                 "customer_name": "",
                 "limit": 10,
@@ -217,8 +217,8 @@ async def test_sales_rep_summary_tool_rejects_team_and_region_rankings():
 
 def _sample_rows():
     return [
-        SalesRegion(id=1, name="East"),
-        SalesRegion(id=2, name="North"),
+        SalesRegion(id=1, name="华东区"),
+        SalesRegion(id=2, name="华北区"),
         SalesRep(id=1, name="East Manager", region_id=1, role="SALES_MANAGER", email="manager@example.com"),
         SalesRep(id=2, name="Zhang Wei", region_id=1, role="SALES_REP", email="zhangwei@example.com"),
         SalesRep(id=3, name="Wang Fang", region_id=1, role="SALES_REP", email="wangfang@example.com"),
