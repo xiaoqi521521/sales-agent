@@ -45,7 +45,7 @@
 
 ## 配置与模型
 
-根目录 `.env` 负责运行时配置。常用配置项：
+根目录 `.env` 负责运行时配置，可先从 `.env.example` 复制后再填入本地密钥和数据库密码。常用配置项：
 
 ```env
 DATABASE_URL=mysql+asyncmy://root:<password>@127.0.0.1:3306/sales_agent

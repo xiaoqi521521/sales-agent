@@ -70,6 +70,12 @@ AGENT_SUMMARY_MODEL=deepseek-v4-flash
 JWT_SECRET_KEY=dev-secret-change-me-use-env-in-production
 ```
 
+也可以先复制 `.env.example`：
+
+```bash
+copy .env.example .env
+```
+
 初始化数据库：
 
 ```bash
@@ -159,6 +165,16 @@ uv run python -m pytest tests/integration -v
 - 使用消息摘要压缩控制长会话上下文，而不是裁剪数据库全部历史。数据库最多保存最近 20 条 `user/assistant` 消息，摘要由 LangChain middleware 在模型上下文层处理。
 - 工具层返回稳定、可读的文本或 `CHART_JSON`，由 Agent 组织最终自然语言回答。
 - API 层不做业务兜底，业务边界尽量放在 service、tool、agent runtime 等对应层中。
+
+## 生产限制说明
+
+当前项目已经完成重构验收和核心链路验证，但仍以学习、演示和阶段性验收为主，不是完整生产交付版本：
+
+- 登录接口当前使用 `repId` 进行开发期身份模拟，没有实现用户名密码、密码哈希、账号禁用、刷新 token 等生产认证能力。
+- `.env.example` 只提供配置模板，真实 `.env` 不应提交到 Git；公开仓库前也不要把真实 API key、数据库密码或 JWT secret 写入文档。
+- 数据库初始化当前使用 `schema.sql` 和 `data.sql`，没有接入完整 Alembic 迁移流程。
+- 当前没有 Docker、CI/CD、监控告警、限流、审计日志和生产级部署脚本。
+- SQLite 仅用于测试内存库，业务运行时应使用 `.env` 中配置的 MySQL。
 
 ## 文档入口
 
