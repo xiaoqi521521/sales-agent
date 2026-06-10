@@ -10,7 +10,7 @@ from app.repositories.chat_memory_repository import ChatMemoryRepository
 class StoredMessage:
     """对话消息的数据对象，不可变，用于内存传递和持久化。"""
 
-    role: str  # 消息角色："user"（用户）| "assistant"（AI）| "tool"（工具调用结果）
+    role: str  # 消息角色："user"（用户）| "assistant"（AI）| "tool"（仅用于本轮工具追踪）
     content: str  # 消息正文内容
     name: str | None = None  # 工具名称，仅当 role="tool" 时有值
 
@@ -19,11 +19,8 @@ class StoredMessage:
         return {"role": self.role, "content": self.content}
 
     def as_storage_message(self) -> dict[str, str]:
-        """转换为存入数据库的格式，tool 类型额外携带 name 字段。"""
-        payload = {"role": self.role, "content": self.content}
-        if self.name:
-            payload["name"] = self.name
-        return payload
+        """转换为存入数据库的格式。长期记忆只保存 role + content。"""
+        return {"role": self.role, "content": self.content}
 
 
 class ChatMemoryService:
@@ -36,7 +33,7 @@ class ChatMemoryService:
         self.max_messages = max_messages
 
     async def get_messages(self, session: AsyncSession, session_id: str) -> list[StoredMessage]:
-        """从数据库读取完整历史消息（含 user/assistant/tool），返回最近 max_messages 条。"""
+        """从数据库读取历史对话消息，返回最近 max_messages 条。"""
         memory = await self.repository.find_by_session_id(session, session_id)
         if memory is None:
             return []
@@ -54,23 +51,20 @@ class ChatMemoryService:
                 continue
             role = item.get("role")
             content = item.get("content")
-            name = item.get("name")
-            # 只接受合法角色和字符串内容，丢弃脏数据
-            if role in {"user", "assistant", "tool"} and isinstance(content, str):
+            # 长期记忆只接受 user/assistant，历史脏数据中的 tool 会被丢弃
+            if role in {"user", "assistant"} and isinstance(content, str):
                 messages.append(
                     StoredMessage(
                         role=role,
                         content=content,
-                        name=name if isinstance(name, str) else None,
                     )
                 )
         # 滑动窗口：只返回最近 max_messages 条
         return messages[-self.max_messages :]
 
     async def get_context_messages(self, session: AsyncSession, session_id: str) -> list[StoredMessage]:
-        """获取发给大模型的上下文消息，过滤掉 tool 类型（工具结果不进入上下文）。"""
-        messages = await self.get_messages(session, session_id)
-        return [message for message in messages if message.role in {"user", "assistant"}]
+        """获取发给大模型的上下文消息，与数据库长期记忆保持一致。"""
+        return await self.get_messages(session, session_id)
 
     async def append_turn(
         self,
@@ -80,11 +74,9 @@ class ChatMemoryService:
         ai_message: str,       # 本轮 AI 最终回答
         tool_messages: list[StoredMessage] | None = None,  # 本轮工具调用的中间结果
     ) -> None:
-        """追加一轮完整对话（用户消息 + 工具结果 + AI回答）并保存到数据库。"""
+        """追加一轮对话（用户消息 + AI回答）并保存到数据库。"""
         messages = await self.get_messages(session, session_id)
-        # 按顺序追加本轮的三类消息
         messages.append(StoredMessage(role="user", content=user_message))
-        messages.extend(tool_messages or [])
         messages.append(StoredMessage(role="assistant", content=ai_message))
         # 保存时截断，只保留最近 max_messages 条
         await self._save(session, session_id, messages[-self.max_messages :])

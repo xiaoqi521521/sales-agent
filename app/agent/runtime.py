@@ -6,6 +6,7 @@ from time import perf_counter
 from typing import Any
 
 from langchain.agents import create_agent
+from langchain.agents.middleware import SummarizationMiddleware
 from langchain.chat_models import init_chat_model
 from langchain_core.callbacks import get_usage_metadata_callback
 from pydantic import ValidationError
@@ -47,9 +48,23 @@ def create_default_chat_model() -> Any:
         raise ValueError("OPENAI_API_KEY 未配置，无法创建默认聊天模型")
 
     return init_chat_model(
-        model=settings.openai_model,         # 模型名称，如 "qwen-max"
+        model=settings.openai_model,         # 模型名称，如 "deepseek-v4-flash"
         model_provider="openai",             # 使用 OpenAI 兼容接口协议
         base_url=settings.openai_base_url,   # 阿里云通义千问的 API 地址
+        api_key=settings.openai_api_key,
+    )
+
+
+def create_summary_chat_model() -> Any:
+    """根据配置文件创建会话摘要使用的大模型实例。"""
+    settings = get_settings()
+    if not settings.openai_api_key:
+        raise ValueError("OPENAI_API_KEY 未配置，无法创建摘要聊天模型")
+
+    return init_chat_model(
+        model=settings.agent_summary_model,
+        model_provider="openai",
+        base_url=settings.openai_base_url,
         api_key=settings.openai_api_key,
     )
 
@@ -61,7 +76,6 @@ class SalesAgentRuntime:
         self,
         *,
         session: AsyncSession,                                    # 数据库会话，用于记忆读写
-        model: Any | None = None,                                 # 大模型实例，默认从配置创建
         today: date | None = None,                                # 当前日期，用于系统提示词，默认当天
         memory_service: ChatMemoryService | None = None,          # 对话记忆服务，默认最多保留20条
         checkpointer: Any | None = None,                          # LangGraph 检查点（可选，用于持久化图状态）
@@ -78,10 +92,13 @@ class SalesAgentRuntime:
         self.tools = create_sales_tools(session=session, today=self.today, current_user=current_user)
         # 构建系统提示词（告知 Agent 角色、规则、当前日期）
         self.system_prompt = build_system_prompt(self.today, current_user=current_user)
+        agent_model = create_default_chat_model()
+        settings = get_settings()
         agent_kwargs = {
-            "model": model or create_default_chat_model(),
+            "model": agent_model,
             "tools": self.tools,
             "system_prompt": self.system_prompt,
+            "middleware": [self._build_summary_middleware(settings)],
         }
         # 可选：加入 LangGraph 检查点，用于图状态持久化
         if checkpointer is not None:
@@ -90,6 +107,15 @@ class SalesAgentRuntime:
         # 用工厂函数组装 Agent（模型 + 工具 + 提示词）
         self.agent = agent_factory(
             **agent_kwargs,
+        )
+
+    def _build_summary_middleware(self, settings: Any) -> Any:
+        """构建 LangChain 官方摘要 middleware。
+        """
+        return SummarizationMiddleware(
+            model=create_summary_chat_model(),
+            trigger=("messages", settings.agent_summary_trigger_messages),
+            keep=("messages", settings.agent_summary_keep_messages),
         )
 
     async def chat(self, *, session_id: str, message: str) -> str:

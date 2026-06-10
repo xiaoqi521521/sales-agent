@@ -19,7 +19,7 @@ AI Agent 上线后需要先回答两个最直接的问题：
 - 使用工具调用前后回调记录工具名称、参数、结果长度。
 - 使用模型监听器获取 token usage。
 - 根据 input/output token 单价估算费用。
-- 通过控制记忆窗口、缓存高频问题、截断工具结果、精简 system prompt 降低成本。
+- 通过控制记忆窗口、消息摘要压缩、截断工具结果、精简 system prompt 降低成本。
 
 Python 版对应：
 
@@ -251,7 +251,7 @@ WARN event=token_cost_threshold_exceeded traceId=trace-test-001 totalTokens=1500
 参考文献中的降本策略在本项目中的处理：
 
 - 控制记忆窗口大小：保留当前 `ChatMemoryService(max_messages=20)`，本阶段不修改。
-- 缓存高频问题：留到 Redis 缓存阶段。
+- 消息摘要压缩：留到 Phase 10，通过 LangChain 官方 `SummarizationMiddleware` 实现。
 - 工具结果截断：现有查询工具已有 `limit` 和上限控制，本阶段只打印 `resultLength`，为后续优化提供依据。
 - 精简 system prompt：本阶段不改 prompt，避免影响 Agent 行为。
 

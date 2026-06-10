@@ -1,5 +1,7 @@
 from datetime import date
 
+import json
+
 import pytest
 from langchain_core.messages import AIMessage, ToolMessage
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
@@ -30,6 +32,19 @@ class FakeToolResultAgent:
         }
 
 
+@pytest.fixture(autouse=True)
+def fake_configured_model(monkeypatch):
+    class FakeSummarizationMiddleware:
+        def __init__(self, *, model, trigger, keep):
+            self.model = model
+            self.trigger = trigger
+            self.keep = keep
+
+    monkeypatch.setattr("app.agent.runtime.SummarizationMiddleware", FakeSummarizationMiddleware)
+    monkeypatch.setattr("app.agent.runtime.create_default_chat_model", lambda: object())
+    monkeypatch.setattr("app.agent.runtime.create_summary_chat_model", lambda: object())
+
+
 @pytest.mark.asyncio
 async def test_agent_runtime_persists_history_and_uses_thread_id():
     engine = create_async_engine("sqlite+aiosqlite:///:memory:")
@@ -42,7 +57,6 @@ async def test_agent_runtime_persists_history_and_uses_thread_id():
     async with session_factory() as session:
         runtime = SalesAgentRuntime(
             session=session,
-            model=object(),
             today=date(2026, 2, 15),
             agent_factory=lambda **kwargs: fake_agent,
         )
@@ -84,7 +98,6 @@ async def test_agent_runtime_binds_five_sales_tools_and_system_prompt():
     async with session_factory() as session:
         runtime = SalesAgentRuntime(
             session=session,
-            model=object(),
             today=date(2026, 2, 15),
             agent_factory=capture_agent,
         )
@@ -105,7 +118,7 @@ async def test_agent_runtime_binds_five_sales_tools_and_system_prompt():
 
 
 @pytest.mark.asyncio
-async def test_agent_runtime_persists_key_tool_results():
+async def test_agent_runtime_returns_tool_traces_without_persisting_tool_messages():
     engine = create_async_engine("sqlite+aiosqlite:///:memory:")
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
@@ -114,16 +127,48 @@ async def test_agent_runtime_persists_key_tool_results():
     async with session_factory() as session:
         runtime = SalesAgentRuntime(
             session=session,
-            model=object(),
             today=date(2026, 2, 15),
             agent_factory=lambda **kwargs: FakeToolResultAgent(),
         )
 
-        await runtime.chat(session_id="session-tool-result", message="上个月华东区销售额是多少？")
+        result = await runtime.chat_with_trace(session_id="session-tool-result", message="上个月华东区销售额是多少？")
+
+        assert result.tool_calls[0].name == "calculate_sales_summary"
+        assert result.tool_calls[0].summary == "销售额汇总：¥94,979"
 
         memory = await ChatMemoryRepository().find_by_session_id(session, "session-tool-result")
         assert memory is not None
-        assert "calculate_sales_summary" in memory.messages
-        assert "销售额汇总：¥94,979" in memory.messages
+        stored_messages = json.loads(memory.messages)
+        assert [message["role"] for message in stored_messages] == ["user", "assistant"]
+        assert "calculate_sales_summary" not in memory.messages
+        assert "销售额汇总：¥94,979" not in memory.messages
+
+    await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_agent_memory_keeps_only_latest_twenty_user_assistant_messages():
+    engine = create_async_engine("sqlite+aiosqlite:///:memory:")
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+
+    session_factory = async_sessionmaker(engine, expire_on_commit=False)
+    async with session_factory() as session:
+        runtime = SalesAgentRuntime(
+            session=session,
+            today=date(2026, 2, 15),
+            agent_factory=lambda **kwargs: FakeCompiledAgent(),
+        )
+
+        for index in range(11):
+            await runtime.chat(session_id="session-window", message=f"第 {index} 轮")
+
+        memory = await ChatMemoryRepository().find_by_session_id(session, "session-window")
+        assert memory is not None
+        stored_messages = json.loads(memory.messages)
+        assert len(stored_messages) == 20
+        assert all(message["role"] in {"user", "assistant"} for message in stored_messages)
+        assert stored_messages[0]["content"] == "第 1 轮"
+        assert stored_messages[-1]["role"] == "assistant"
 
     await engine.dispose()

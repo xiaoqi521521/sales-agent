@@ -6,7 +6,7 @@
 
 **架构：** 后端采用 FastAPI 分层架构，API 层只处理协议与依赖注入，Service 层承载业务查询与分析，Repository 层封装数据库访问，LangChain Tools 调用 Service 层能力，Agent 层负责工具编排、多轮对话和最终回答。参考文献只作为开发期资料库，不进入业务运行时。
 
-**Tech Stack：** Python 3.12、FastAPI、Uvicorn、Pydantic Settings、SQLAlchemy Async、MySQL、asyncmy、Alembic、LangChain、pytest、pytest-asyncio、httpx、可选 Redis。SQLite 仅用于测试中的内存数据库场景。
+**Tech Stack：** Python 3.12、FastAPI、Uvicorn、Pydantic Settings、SQLAlchemy Async、MySQL、asyncmy、Alembic、LangChain、pytest、pytest-asyncio、httpx。SQLite 仅用于测试中的内存数据库场景。
 
 ---
 
@@ -22,7 +22,7 @@
 - 多轮会话记忆。
 - 流式输出接口。
 - 用户认证、角色权限与数据隔离。
-- Redis 缓存、日志追踪、token 成本记录、SQL 注入防护。
+- 日志追踪、token 成本记录、消息摘要压缩、SQL 注入防护。
 - 单元测试、服务测试、API 集成测试和核心场景端到端测试。
 
 ### 本轮重构不包含
@@ -110,7 +110,6 @@ sales-agent/
       chart_service.py
       anomaly_service.py
       auth_service.py
-      cache_service.py
       token_usage_service.py
     tools/
       sales_query_tool.py
@@ -161,7 +160,7 @@ sales-agent/
 - [x] 定义 LangChain4j 到 LangChain/FastAPI 的映射关系。
 - [x] 确定 API 路径、请求响应结构、错误返回格式。
 - [x] 确定开发阶段默认数据库为本地 MySQL，测试中可使用内存 SQLite 验证 Service/Repository 行为。
-- [x] 确定认证、缓存、流式输出作为后续增强阶段接入，不阻塞基础 Agent 跑通。
+- [x] 确定认证、流式输出和消息摘要压缩作为后续增强阶段接入，不阻塞基础 Agent 跑通。
 
 **验收：**
 
@@ -492,7 +491,7 @@ uv run pytest tests/integration/test_error_boundaries.py tests/integration/test_
 
 ---
 
-### Phase 9：日志追踪与 Token 成本控制
+### Phase 9：日志追踪
 
 **目标：** 在不新增数据库表、不持久化成本记录的前提下，提供控制台级日志追踪、工具调用追踪和 token 成本估算。
 
@@ -533,45 +532,51 @@ uv run pytest tests/unit/test_token_usage.py tests/integration/test_logging_and_
 
 - 每个请求能在控制台通过分隔符和 traceId 区分日志块。
 - Agent、Tool、Token usage 日志能串联到同一个 traceId。
-- token 成本按输入、缓存命中输入、输出三种价格分别估算。
+- token 成本按输入、模型侧缓存命中输入、输出三种价格分别估算。
 - token usage 获取失败不阻断用户请求。
 
 ---
 
-### Phase 10：Redis 缓存层
+### Phase 10：消息摘要压缩与 Token 成本控制
 
-**目标：** 为高频统计查询增加可选缓存，降低重复查询数据库和重复计算的成本，同时保证 Redis 不可用时系统能降级为无缓存运行。
+**目标：** 使用 LangChain 官方摘要 middleware 对长会话历史做消息摘要压缩，减少后续请求携带的历史 token；不再通过 Redis 缓存 Agent 最终回答来控制 token 成本。
 
 **加载参考：** `25`
 
 **主要文件：**
 
 - `app/core/config.py`
-- `app/services/cache_service.py`
-- `app/services/sales_query_service.py`
-- `tests/integration/test_cache_service.py`
-- `tests/integration/test_sales_query_service.py`
+- `app/agent/memory.py`
+- `app/agent/runtime.py`
+- `app/schemas/agent.py`
+- `tests/integration/test_agent_summarization.py`
+- `tests/integration/test_agent_memory.py`
+- `tests/integration/test_agent_api.py`
+- `tests/integration/test_agent_streaming.py`
 
 **任务：**
 
-- [ ] 明确适合缓存的查询：总销售额、销售员排行、大区排行、产品排行、趋势统计等高频统计结果。
-- [ ] 设计缓存 key，纳入日期范围、查询维度、角色权限范围、region_id、rep_id 等隔离字段。
-- [ ] 增加可选 Redis 配置；未配置或 Redis 不可用时自动降级为直查数据库。
-- [ ] 在 Service 层接入缓存，不让 Tool 层直接关心缓存实现。
-- [ ] 设置合理 TTL，避免测试数据或业务数据变化后长时间返回旧结果。
-- [ ] 增加缓存命中、未命中、降级场景测试。
+- [x] 调整 `ChatMemoryService`，数据库会话记忆只保存 `user/assistant` 对话消息，不保存 `tool` 消息，保证数据库 `messages` 与大模型上下文一致。
+- [x] 使用 LangChain 官方 `SummarizationMiddleware` 实现会话消息摘要压缩，达到 20 条对话消息时自动摘要，并保留最近 6 条对话消息。
+- [x] 在 `create_agent` 时配置摘要 middleware，摘要模型、触发阈值和保留消息数通过配置项控制。
+- [x] 移除 Phase 10 中 Redis、Agent 回答缓存、查询指纹缓存、TTL 和缓存降级相关设计。
+- [x] 保证同步接口和流式接口都不保存 `tool` 消息到 `sa_chat_memory.messages`。
+- [x] 增加摘要 middleware 配置、数据库记忆不含 tool、最多 20 条消息、API 和流式接口回归测试。
 
 **验收命令：**
 
 ```bash
-uv run pytest tests/integration/test_cache_service.py tests/integration/test_sales_query_service.py -v
+uv run pytest tests/integration/test_agent_summarization.py tests/integration/test_agent_memory.py tests/integration/test_agent_api.py tests/integration/test_agent_streaming.py -v
 ```
 
 **完成标准：**
 
-- Redis 可用时重复统计查询能命中缓存。
-- Redis 不可用时系统能继续返回正确结果。
-- 不同角色、不同大区、不同销售员之间不会共享越权缓存。
+- 长会话下通过 LangChain 官方摘要 middleware 压缩消息历史，避免上下文无限增长。
+- `sa_chat_memory.messages` 只保存 `user/assistant` 对话消息，不保存 `tool` 消息。
+- 数据库最多保存最近 20 条对话消息。
+- 摘要触发阈值为 20 条消息，保留最近 6 条对话消息。
+- 不引入 Redis 缓存作为 Phase 10 依赖。
+- 摘要配置不会改变同步接口和流式接口的响应结构。
 
 ---
 
@@ -677,10 +682,6 @@ Agent 阶段依赖：
 - `passlib`
 - `bcrypt`
 
-缓存阶段依赖：
-
-- `redis`
-
 ---
 
 ## 六、开发约束
@@ -726,7 +727,7 @@ Agent 阶段依赖：
 
 覆盖 Phase 7、Phase 8、Phase 9、Phase 10、Phase 11。
 
-验收：权限隔离、错误边界、日志追踪、token 成本估算、缓存策略和 SQL 注入防护可用。
+验收：权限隔离、错误边界、日志追踪、token 成本估算、消息摘要压缩和 SQL 注入防护可用。
 
 ### M6：参考场景全部通过
 

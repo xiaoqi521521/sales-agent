@@ -42,6 +42,19 @@ def fake_no_usage_agent_factory(**kwargs):
     return FakeNoUsageAgent()
 
 
+@pytest.fixture(autouse=True)
+def fake_configured_model(monkeypatch):
+    class FakeSummarizationMiddleware:
+        def __init__(self, *, model, trigger, keep):
+            self.model = model
+            self.trigger = trigger
+            self.keep = keep
+
+    monkeypatch.setattr("app.agent.runtime.SummarizationMiddleware", FakeSummarizationMiddleware)
+    monkeypatch.setattr("app.agent.runtime.create_default_chat_model", lambda: object())
+    monkeypatch.setattr("app.agent.runtime.create_summary_chat_model", lambda: object())
+
+
 @pytest.mark.asyncio
 async def test_agent_runtime_logs_token_usage_from_ai_message_metadata(caplog):
     caplog.set_level(logging.INFO)
@@ -53,7 +66,6 @@ async def test_agent_runtime_logs_token_usage_from_ai_message_metadata(caplog):
     async with session_factory() as session:
         runtime = SalesAgentRuntime(
             session=session,
-            model=object(),
             today=date(2026, 2, 15),
             agent_factory=fake_agent_factory,
         )
@@ -82,7 +94,6 @@ async def test_stream_fallback_logs_token_usage_unavailable(caplog):
     async with session_factory() as session:
         runtime = SalesAgentRuntime(
             session=session,
-            model=object(),
             today=date(2026, 2, 15),
             agent_factory=fake_no_usage_agent_factory,
         )

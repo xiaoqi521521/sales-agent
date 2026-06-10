@@ -17,8 +17,8 @@ class Settings(BaseSettings):
     cors_origins: list[str] = Field(default_factory=lambda: ["*"])
     openai_api_key: str = ""
     openai_base_url: str = "https://dashscope.aliyuncs.com/compatible-mode/v1"
-    openai_model: str = "qwen-max"
-    openai_streaming_model: str = "qwen-max"
+    openai_model: str = "deepseek-v4-flash"
+    openai_streaming_model: str = "deepseek-v4-flash"
     jwt_secret_key: str = "dev-secret-change-me-use-env-in-production"
     jwt_algorithm: str = "HS256"
     jwt_expire_minutes: int = 60 * 24
@@ -28,6 +28,9 @@ class Settings(BaseSettings):
     token_cost_currency: str = "CNY"
     token_warn_total_threshold: int = 0
     token_warn_cost_threshold: Decimal = Decimal("0")
+    agent_summary_model: str = "deepseek-v4-flash"
+    agent_summary_trigger_messages: int = 20
+    agent_summary_keep_messages: int = 6
 
     model_config = SettingsConfigDict(
         env_file=PROJECT_ROOT / ".env",

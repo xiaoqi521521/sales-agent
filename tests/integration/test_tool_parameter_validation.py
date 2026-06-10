@@ -12,6 +12,19 @@ class ValidationFailingAgent:
         raise _validation_error()
 
 
+@pytest.fixture(autouse=True)
+def fake_configured_model(monkeypatch):
+    class FakeSummarizationMiddleware:
+        def __init__(self, *, model, trigger, keep):
+            self.model = model
+            self.trigger = trigger
+            self.keep = keep
+
+    monkeypatch.setattr("app.agent.runtime.SummarizationMiddleware", FakeSummarizationMiddleware)
+    monkeypatch.setattr("app.agent.runtime.create_default_chat_model", lambda: object())
+    monkeypatch.setattr("app.agent.runtime.create_summary_chat_model", lambda: object())
+
+
 def _validation_error() -> ValidationError:
     try:
         SalesQueryInput(
@@ -35,7 +48,6 @@ async def test_runtime_converts_tool_parameter_validation_error_to_readable_repl
     async with session_factory() as session:
         runtime = SalesAgentRuntime(
             session=session,
-            model=object(),
             agent_factory=lambda **kwargs: ValidationFailingAgent(),
         )
 
@@ -59,7 +71,6 @@ async def test_stream_runtime_converts_tool_parameter_validation_error_to_error_
     async with session_factory() as session:
         runtime = SalesAgentRuntime(
             session=session,
-            model=object(),
             agent_factory=lambda **kwargs: ValidationFailingAgent(),
         )
 

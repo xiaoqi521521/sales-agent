@@ -141,16 +141,20 @@ app/core/auth_context.py
 app/services/sales_query_service.py
 ```
 
-## 缓存阶段计划技术栈
+## Token 成本控制阶段技术栈
 
-以下依赖会在 Redis 缓存阶段再引入：
+Phase 10 不再引入 Redis 缓存，也不缓存 Agent 最终回答。Token 成本控制收敛为消息摘要压缩：
 
-- redis：Redis 客户端。
+- 使用 LangChain 官方 `SummarizationMiddleware`。
+- 数据库会话记忆只保存 `user/assistant` 对话消息。
+- `tool` 消息不进入长期会话记忆。
+- 达到 20 条对话消息时触发摘要，并保留最近 6 条对话消息。
 
 计划使用位置：
 
 ```text
-app/services/cache_service.py
+app/agent/memory.py
+app/agent/runtime.py
 ```
 
 ## 暂不采用的技术

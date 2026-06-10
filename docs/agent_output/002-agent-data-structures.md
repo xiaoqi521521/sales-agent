@@ -23,7 +23,7 @@ CREATE TABLE IF NOT EXISTS sa_chat_memory (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='对话记忆持久化';
 ```
 
-其中 `messages` 是 JSON 字符串，当前保存最近 20 条消息。
+其中 `messages` 是 JSON 字符串，当前保存最近 20 条 `user/assistant` 对话消息，不保存 `tool` 消息。
 
 结构示例：
 
@@ -32,11 +32,6 @@ CREATE TABLE IF NOT EXISTS sa_chat_memory (
   {
     "role": "user",
     "content": "上个月华东区的销售情况怎么样？"
-  },
-  {
-    "role": "tool",
-    "content": "销售额汇总：¥94,979 ...",
-    "name": "calculate_sales_summary"
   },
   {
     "role": "assistant",
@@ -48,18 +43,18 @@ CREATE TABLE IF NOT EXISTS sa_chat_memory (
 保存顺序：
 
 ```text
-user -> tool（如果本轮调用了工具）-> assistant
+user -> assistant
 ```
 
 字段含义：
 
 - `role=user`：用户输入。
-- `role=tool`：工具调用结果，额外带 `name` 表示工具名称。
 - `role=assistant`：Agent 最终回答。
+- 工具调用结果不写入 `sa_chat_memory.messages`，只用于本轮 `toolCalls`、日志和流式 `tool` 事件。
 
 ## 2. 大模型上下文结构
 
-虽然数据库中保存了 `user`、`tool`、`assistant` 三类消息，但当前发给大模型的上下文会过滤掉 `tool`。
+数据库中保存的消息与发给大模型的上下文保持一致，均只包含 `user/assistant` 对话消息。
 
 实际传给 LangChain Agent 的 payload 类似：
 
@@ -93,9 +88,10 @@ config = {
 
 当前策略：
 
-- MySQL 保存完整历史，包括工具结果。
-- 大模型上下文只使用 `user` 和 `assistant`。
-- `tool` 结果用于追踪、接口摘要和持久化，不直接进入下一轮模型上下文。
+- MySQL 保存最近 20 条 `user/assistant` 对话消息。
+- 大模型上下文直接使用 MySQL 中的 `user/assistant` 记忆。
+- `tool` 结果用于追踪、接口摘要和流式事件，不进入长期会话记忆。
+- 上下文达到 20 条消息时，由 LangChain 官方 `SummarizationMiddleware` 触发摘要，并保留最近 6 条原文对话消息。
 
 ## 3. 同步接口返回结构
 
@@ -189,17 +185,18 @@ data: {"message":"服务暂时不可用，请稍后重试"}
 
 ```text
 用户消息 user
-工具结果 tool
 AI 最终回答 assistant
 ```
+
+工具结果不会写入 `sa_chat_memory.messages`，但仍会出现在本轮响应的 `toolCalls` 或流式 `tool` 事件中。
 
 注意：如果客户端在流式输出中途断开，生成器可能被取消，最后的持久化逻辑不一定执行。正常完成并发出 `done` 事件时，会持久化。
 
 ## 6. 简单总结
 
 ```text
-数据库：保存完整历史 user/tool/assistant
-模型上下文：只发送 user/assistant
+数据库：保存最近 20 条 user/assistant
+模型上下文：与数据库一致，只包含 user/assistant
 同步接口：返回 sessionId/reply/durationMs/toolCalls/dataReferences
 流式接口：逐步返回 token/tool，最终 done 返回 sessionId/reply/durationMs/toolCalls/dataReferences
 ```
