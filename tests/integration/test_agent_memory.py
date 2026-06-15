@@ -69,7 +69,7 @@ async def test_agent_runtime_persists_history_and_uses_thread_id():
         assert second_answer == "session-a:3"
         assert other_answer == "session-b:1"
         assert fake_agent.calls[0]["config"]["configurable"]["thread_id"] == "session-a"
-        assert fake_agent.calls[0]["config"]["recursion_limit"] == 10
+        assert fake_agent.calls[0]["config"]["recursion_limit"] == 20
         assert len(fake_agent.calls[1]["payload"]["messages"]) == 3
         assert fake_agent.calls[1]["payload"]["messages"][0]["role"] == "user"
         assert fake_agent.calls[1]["payload"]["messages"][1]["role"] == "assistant"

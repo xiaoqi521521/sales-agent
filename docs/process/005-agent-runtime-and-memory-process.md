@@ -83,7 +83,7 @@ uv add langchain-openai
    - 绑定 5 个销售工具。
    - 构造 system prompt。
    - 使用 `create_agent` 创建 LangChain Agent。
-   - 调用时设置 `thread_id` 和 `recursion_limit=10`。
+   - 调用时设置 `thread_id` 和 `recursion_limit=20`。
    - 从 LangChain 返回结果中提取最终回答和 ToolMessage。
    - 将用户消息、关键工具结果和 AI 回复写入记忆。
 

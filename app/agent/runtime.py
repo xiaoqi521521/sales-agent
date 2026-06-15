@@ -81,7 +81,7 @@ class SalesAgentRuntime:
         checkpointer: Any | None = None,                          # LangGraph 检查点（可选，用于持久化图状态）
         current_user: CurrentUser | None = None,
         agent_factory: AgentFactory = create_agent,               # Agent 工厂函数，支持替换为 Mock
-        recursion_limit: int = 10,                                # Agent 最大递归调用次数，防止死循环
+        recursion_limit: int = 20,                                # Agent 最大递归调用次数，防止死循环
     ) -> None:
         self.session = session
         self.today = today or date.today()
