@@ -120,6 +120,7 @@ class SalesTrendInput(ToolInputModel):
     previous_start: str | None = Field(default=None, description="对比周期开始日期；mom 可空，空则自动计算上一个等长周期")
     previous_end: str | None = Field(default=None, description="对比周期结束日期；mom 可空，空则自动计算上一个等长周期")
     region_name: str | None = Field(default=None, description="大区名称；空字符串或 null 表示全公司")
+    rep_name: str | None = Field(default=None, description="销售员姓名；空字符串或 null 表示不限销售员")
     months: int = Field(default=6, ge=1, le=24, description="月度趋势查看近多少个月，最大 24")
 
     @model_validator(mode="after")

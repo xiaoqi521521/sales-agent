@@ -95,6 +95,18 @@ class SalesQueryService:
                 total += order.amount
         return total
 
+    async def query_total_amount_by_rep(
+        self,
+        session: AsyncSession,
+        rep_id: int,
+        start: date,
+        end: date,
+    ) -> Decimal:
+        scoped_rep_id, scoped_region_id = await self._order_scope(session, rep_id=rep_id, region_id=None)
+        if self._is_invalid_scope(scoped_rep_id, scoped_region_id) or scoped_rep_id is None:
+            return Decimal("0")
+        return await self.order_repository.sum_amount_by_rep(session, scoped_rep_id, start, end)
+
     async def query_rep_ranking(
         self,
         session: AsyncSession,
@@ -197,6 +209,21 @@ class SalesQueryService:
             if scoped_region_id == -1:
                 return []
             raw = await self.order_repository.find_monthly_trend(session, scoped_region_id, start, end)
+        return [MonthlyTrendDTO(month=month, total_amount=total, order_count=count) for month, total, count in raw]
+
+    async def query_monthly_trend_by_rep(
+        self,
+        session: AsyncSession,
+        rep_id: int,
+        months: int,
+        today: date | None = None,
+    ) -> list[MonthlyTrendDTO]:
+        scoped_rep_id, scoped_region_id = await self._order_scope(session, rep_id=rep_id, region_id=None)
+        if self._is_invalid_scope(scoped_rep_id, scoped_region_id) or scoped_rep_id is None:
+            return []
+        end = today or date.today()
+        start = self._minus_months(end, months).replace(day=1)
+        raw = await self.order_repository.find_monthly_trend_by_rep(session, scoped_rep_id, start, end)
         return [MonthlyTrendDTO(month=month, total_amount=total, order_count=count) for month, total, count in raw]
 
     def calc_growth_rate(self, current: Decimal, previous: Decimal | None) -> Decimal | None:

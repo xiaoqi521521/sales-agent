@@ -1,4 +1,5 @@
 from datetime import timedelta
+from typing import NamedTuple
 
 from langchain.tools import tool
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -28,6 +29,7 @@ def create_sales_trend_tool(session: AsyncSession, service: SalesQueryService, t
         previous_start: str | None = None,
         previous_end: str | None = None,
         region_name: str | None = None,
+        rep_name: str | None = None,
         months: int = 6,
     ) -> str:
         """分析销售趋势，计算环比、同比和月度趋势。适用于增长率、同比去年、环比上期、近几个月走势等问题。"""
@@ -41,11 +43,12 @@ def create_sales_trend_tool(session: AsyncSession, service: SalesQueryService, t
                 "previous_start": previous_start,
                 "previous_end": previous_end,
                 "region_name": region_name,
+                "rep_name": rep_name,
                 "months": months,
             },
         )
         try:
-            region_id, region_label = await _resolve_region(service, session, blank_to_none(region_name))
+            scope = await _resolve_scope(service, session, blank_to_none(region_name), blank_to_none(rep_name))
             if trend_type == "mom":
                 result = await _month_over_month(
                     service,
@@ -54,15 +57,14 @@ def create_sales_trend_tool(session: AsyncSession, service: SalesQueryService, t
                     current_end,
                     previous_start,
                     previous_end,
-                    region_id,
-                    region_label,
+                    scope,
                 )
                 return tool_call_finished(tool_name, started_at, result)
             if trend_type == "yoy":
-                result = await _year_over_year(service, session, current_start, current_end, region_id, region_label)
+                result = await _year_over_year(service, session, current_start, current_end, scope)
                 return tool_call_finished(tool_name, started_at, result)
             if trend_type == "monthly":
-                result = await _monthly_trend(service, session, region_id, region_label, months, today)
+                result = await _monthly_trend(service, session, scope, months, today)
                 return tool_call_finished(tool_name, started_at, result)
             return tool_call_finished(tool_name, started_at, tool_invalid_argument("未知趋势类型，请使用 mom、yoy 或 monthly。"))
         except Exception as exc:
@@ -73,6 +75,32 @@ def create_sales_trend_tool(session: AsyncSession, service: SalesQueryService, t
             return tool_call_finished(tool_name, started_at, tool_execution_error())
 
     return analyze_sales_trend
+
+
+class TrendScope(NamedTuple):
+    region_id: int | None
+    rep_id: int | None
+    label: str
+
+
+async def _resolve_scope(
+    service: SalesQueryService,
+    session: AsyncSession,
+    region_name: str | None,
+    rep_name: str | None,
+) -> TrendScope:
+    region_id, region_label = await _resolve_region(service, session, region_name)
+    if not rep_name:
+        return TrendScope(region_id=region_id, rep_id=None, label=region_label)
+
+    rep_id = await service.get_rep_id_by_name(session, rep_name)
+    if rep_id is None:
+        raise ToolUnknownEntityError(tool_unknown_entity("销售员", rep_name))
+    if region_id is not None:
+        orders = await service.query_orders(session, rep_id=rep_id, region_id=region_id, start=date.min, end=date.max)
+        if not orders:
+            raise ToolUnknownEntityError(tool_unknown_entity("销售员", rep_name))
+    return TrendScope(region_id=region_id, rep_id=rep_id, label=f"销售员：{rep_name}")
 
 
 async def _resolve_region(service: SalesQueryService, session: AsyncSession, region_name: str | None):
@@ -91,8 +119,7 @@ async def _month_over_month(
     current_end,
     previous_start,
     previous_end,
-    region_id,
-    region_label: str,
+    scope: TrendScope,
 ) -> str:
     current_start_date, current_end_date = parse_required_range(current_start, current_end)
     if previous_start and previous_end:
@@ -102,11 +129,11 @@ async def _month_over_month(
         previous_end_date = current_start_date - timedelta(days=1)
         previous_start_date = previous_end_date - timedelta(days=days - 1)
 
-    current = await service.query_total_amount(session, region_id, current_start_date, current_end_date)
-    previous = await service.query_total_amount(session, region_id, previous_start_date, previous_end_date)
+    current = await _query_total_amount(service, session, scope, current_start_date, current_end_date)
+    previous = await _query_total_amount(service, session, scope, previous_start_date, previous_end_date)
     rate = service.calc_growth_rate(current, previous)
     lines = [
-        f"环比分析（{region_label}）：",
+        f"环比分析（{scope.label}）：",
         "",
         f"当前周期（{current_start_date} 至 {current_end_date}）：{format_money(current)}",
         f"对比周期（{previous_start_date} 至 {previous_end_date}）：{format_money(previous)}",
@@ -119,15 +146,15 @@ async def _month_over_month(
     return "\n".join(lines)
 
 
-async def _year_over_year(service: SalesQueryService, session: AsyncSession, current_start, current_end, region_id, region_label):
+async def _year_over_year(service: SalesQueryService, session: AsyncSession, current_start, current_end, scope: TrendScope):
     start, end = parse_required_range(current_start, current_end)
     previous_start = start.replace(year=start.year - 1)
     previous_end = end.replace(year=end.year - 1)
-    current = await service.query_total_amount(session, region_id, start, end)
-    previous = await service.query_total_amount(session, region_id, previous_start, previous_end)
+    current = await _query_total_amount(service, session, scope, start, end)
+    previous = await _query_total_amount(service, session, scope, previous_start, previous_end)
     rate = service.calc_growth_rate(current, previous)
     lines = [
-        f"同比分析（{region_label}）：",
+        f"同比分析（{scope.label}）：",
         "",
         f"今年（{start} 至 {end}）：{format_money(current)}",
         f"去年（{previous_start} 至 {previous_end}）：{format_money(previous)}",
@@ -140,12 +167,15 @@ async def _year_over_year(service: SalesQueryService, session: AsyncSession, cur
     return "\n".join(lines)
 
 
-async def _monthly_trend(service: SalesQueryService, session: AsyncSession, region_id, region_label: str, months: int, today):
+async def _monthly_trend(service: SalesQueryService, session: AsyncSession, scope: TrendScope, months: int, today):
     month_count = months
-    trend = await service.query_monthly_trend(session, region_id, month_count, today=today)
+    if scope.rep_id is not None:
+        trend = await service.query_monthly_trend_by_rep(session, scope.rep_id, month_count, today=today)
+    else:
+        trend = await service.query_monthly_trend(session, scope.region_id, month_count, today=today)
     if not trend:
-        return tool_empty_data(f"近 {month_count} 个月，{region_label}暂无趋势数据。")
-    lines = [f"月度销售趋势（近 {month_count} 个月，{region_label}）：", ""]
+        return tool_empty_data(f"近 {month_count} 个月，{scope.label}暂无趋势数据。")
+    lines = [f"月度销售趋势（近 {month_count} 个月，{scope.label}）：", ""]
     previous = None
     for item in trend:
         suffix = ""
@@ -156,3 +186,15 @@ async def _monthly_trend(service: SalesQueryService, session: AsyncSession, regi
         lines.append(f"{item.month}：{format_money(item.total_amount)} 订单数：{item.order_count}{suffix}")
         previous = item.total_amount
     return "\n".join(lines)
+
+
+async def _query_total_amount(
+    service: SalesQueryService,
+    session: AsyncSession,
+    scope: TrendScope,
+    start,
+    end,
+):
+    if scope.rep_id is not None:
+        return await service.query_total_amount_by_rep(session, scope.rep_id, start, end)
+    return await service.query_total_amount(session, scope.region_id, start, end)

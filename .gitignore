@@ -3,6 +3,7 @@
 .idea/
 docs/reference/
 docs/log/
+docs/resume/ready.md
 .pytest_cache/
 __pycache__/
 *.py[cod]

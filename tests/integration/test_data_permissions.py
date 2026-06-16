@@ -228,6 +228,120 @@ async def test_sales_rep_summary_tool_rejects_team_and_region_rankings():
     await engine.dispose()
 
 
+@pytest.mark.asyncio
+async def test_sales_trend_tool_applies_rep_permission_scope():
+    engine = create_async_engine("sqlite+aiosqlite:///:memory:")
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+
+    session_factory = async_sessionmaker(engine, expire_on_commit=False)
+    async with session_factory() as session:
+        session.add_all(_sample_rows())
+        await session.commit()
+
+        rep_token = set_current_user(
+            CurrentUser(
+                username="Zhang Wei",
+                role="SALES_REP",
+                region_id=1,
+                rep_id=2,
+            )
+        )
+        tools = {tool.name: tool for tool in create_sales_tools(session=session, today=date(2026, 1, 31))}
+
+        try:
+            own_trend = await tools["analyze_sales_trend"].ainvoke(
+                {
+                    "trend_type": "mom",
+                    "current_start": "2026-01-01",
+                    "current_end": "2026-01-31",
+                    "previous_start": "2025-12-01",
+                    "previous_end": "2025-12-31",
+                    "region_name": "",
+                    "rep_name": "Zhang Wei",
+                    "months": 2,
+                }
+            )
+            other_trend = await tools["analyze_sales_trend"].ainvoke(
+                {
+                    "trend_type": "mom",
+                    "current_start": "2026-01-01",
+                    "current_end": "2026-01-31",
+                    "previous_start": "2025-12-01",
+                    "previous_end": "2025-12-31",
+                    "region_name": "",
+                    "rep_name": "Wang Fang",
+                    "months": 2,
+                }
+            )
+        finally:
+            reset_current_user(rep_token)
+
+        assert "环比分析（销售员：Zhang Wei）" in own_trend
+        assert "当前周期（2026-01-01 至 2026-01-31）：¥1,000" in own_trend
+        assert other_trend.startswith("TOOL_UNKNOWN_ENTITY")
+        assert "Wang Fang" in other_trend
+
+    await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_sales_manager_can_query_trend_for_own_region_rep_only():
+    engine = create_async_engine("sqlite+aiosqlite:///:memory:")
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+
+    session_factory = async_sessionmaker(engine, expire_on_commit=False)
+    async with session_factory() as session:
+        session.add_all(_sample_rows())
+        await session.commit()
+
+        manager_token = set_current_user(
+            CurrentUser(
+                username="East Manager",
+                role="SALES_MANAGER",
+                region_id=1,
+                rep_id=1,
+            )
+        )
+        tools = {tool.name: tool for tool in create_sales_tools(session=session, today=date(2026, 1, 31))}
+
+        try:
+            own_region_trend = await tools["analyze_sales_trend"].ainvoke(
+                {
+                    "trend_type": "mom",
+                    "current_start": "2026-01-01",
+                    "current_end": "2026-01-31",
+                    "previous_start": "2025-12-01",
+                    "previous_end": "2025-12-31",
+                    "region_name": "",
+                    "rep_name": "Wang Fang",
+                    "months": 2,
+                }
+            )
+            other_region_trend = await tools["analyze_sales_trend"].ainvoke(
+                {
+                    "trend_type": "mom",
+                    "current_start": "2026-01-01",
+                    "current_end": "2026-01-31",
+                    "previous_start": "2025-12-01",
+                    "previous_end": "2025-12-31",
+                    "region_name": "",
+                    "rep_name": "Zhang Lei",
+                    "months": 2,
+                }
+            )
+        finally:
+            reset_current_user(manager_token)
+
+        assert "环比分析（销售员：Wang Fang）" in own_region_trend
+        assert "当前周期（2026-01-01 至 2026-01-31）：¥1,500" in own_region_trend
+        assert other_region_trend.startswith("TOOL_UNKNOWN_ENTITY")
+        assert "Zhang Lei" in other_region_trend
+
+    await engine.dispose()
+
+
 def _sample_rows():
     return [
         SalesRegion(id=1, name="华东区"),

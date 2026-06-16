@@ -110,6 +110,36 @@ async def test_trend_chart_and_anomaly_tools_match_reference_outputs():
         assert "当前周期" in trend_text
         assert "对比周期" in trend_text
 
+        rep_trend_text = await tools["analyze_sales_trend"].ainvoke(
+            {
+                "trend_type": "mom",
+                "current_start": "2026-01-01",
+                "current_end": "2026-01-31",
+                "previous_start": "2025-12-01",
+                "previous_end": "2025-12-31",
+                "region_name": "",
+                "rep_name": "Zhang Lei",
+                "months": 2,
+            }
+        )
+        assert "环比分析（销售员：Zhang Lei）" in rep_trend_text
+        assert "当前周期（2026-01-01 至 2026-01-31）：¥200" in rep_trend_text
+        assert "对比周期（2025-12-01 至 2025-12-31）：¥6,000" in rep_trend_text
+        assert "下降 96.67%" in rep_trend_text
+
+        rep_monthly_text = await tools["analyze_sales_trend"].ainvoke(
+            {
+                "trend_type": "monthly",
+                "region_name": "",
+                "rep_name": "Zhang Lei",
+                "months": 3,
+            }
+        )
+        assert "月度销售趋势（近 3 个月，销售员：Zhang Lei）" in rep_monthly_text
+        assert "2025-12：¥6,000 订单数：3" in rep_monthly_text
+        assert "2026-01：¥200 订单数：1" in rep_monthly_text
+        assert "2026-02：¥500 订单数：1" in rep_monthly_text
+
         chart_text = await tools["generate_sales_chart"].ainvoke(
             {
                 "chart_type": "pie",
@@ -207,6 +237,21 @@ async def test_sales_tools_return_stable_boundary_messages():
         )
         assert unknown_rep_text.startswith("TOOL_UNKNOWN_ENTITY")
         assert "未找到销售员：Nobody" in unknown_rep_text
+
+        unknown_trend_rep_text = await tools["analyze_sales_trend"].ainvoke(
+            {
+                "trend_type": "mom",
+                "current_start": "2026-01-01",
+                "current_end": "2026-01-31",
+                "previous_start": "2025-12-01",
+                "previous_end": "2025-12-31",
+                "region_name": "",
+                "rep_name": "Nobody",
+                "months": 2,
+            }
+        )
+        assert unknown_trend_rep_text.startswith("TOOL_UNKNOWN_ENTITY")
+        assert "未找到销售员：Nobody" in unknown_trend_rep_text
 
         invalid_chart_text = await tools["generate_sales_chart"].ainvoke(
             {
