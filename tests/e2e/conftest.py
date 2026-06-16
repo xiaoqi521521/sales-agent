@@ -183,11 +183,10 @@ async def e2e_client(monkeypatch: pytest.MonkeyPatch) -> AsyncIterator[AsyncClie
 
     async def override_sales_agent_runtime(
         session: AsyncSession = Depends(get_db_session),
-        current_user: CurrentUser = Depends(get_current_user),
+        _current_user: CurrentUser = Depends(get_current_user),
     ) -> SalesAgentRuntime:
         return SalesAgentRuntime(
             session=session,
-            current_user=current_user,
             today=date(2026, 2, 15),
             agent_factory=scenario_agent_factory,
         )

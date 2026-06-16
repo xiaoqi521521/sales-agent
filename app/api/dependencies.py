@@ -1,5 +1,6 @@
 """Shared FastAPI dependencies."""
 
+from collections.abc import AsyncIterator
 from typing import Annotated
 
 from fastapi import Depends, HTTPException, status
@@ -10,6 +11,7 @@ from app.agent.runtime import SalesAgentRuntime
 from app.core.auth_context import CurrentUser
 from app.core.database import get_db_session
 from app.core.security import decode_access_token
+from app.core.user_context import reset_current_user, set_current_user
 from app.repositories.sales_rep_repository import SalesRepRepository
 
 
@@ -66,10 +68,14 @@ async def get_current_user(
 async def get_sales_agent_runtime(
     session: Annotated[AsyncSession, Depends(get_db_session)],
     current_user: Annotated[CurrentUser, Depends(get_current_user)],
-) -> SalesAgentRuntime:
+) -> AsyncIterator[SalesAgentRuntime]:
     """获取销售 Agent 运行时实例（FastAPI 依赖注入）
     
     创建并返回配置好数据库会话和用户上下文的 Agent 运行时实例。
     用于需要调用 AI Agent 的路由。
     """
-    return SalesAgentRuntime(session=session, current_user=current_user)
+    context_token = set_current_user(current_user)
+    try:
+        yield SalesAgentRuntime(session=session)
+    finally:
+        reset_current_user(context_token)

@@ -5,6 +5,7 @@ import pytest
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from app.core.auth_context import CurrentUser
+from app.core.user_context import reset_current_user, set_current_user
 from app.models.base import Base
 from app.models.product import Product
 from app.models.sales_order import SalesOrder
@@ -25,26 +26,30 @@ async def test_sales_rep_can_only_see_own_orders_and_ranking():
         session.add_all(_sample_rows())
         await session.commit()
 
-        service = SalesQueryService(
-            current_user=CurrentUser(
+        service = SalesQueryService()
+        user_token = set_current_user(
+            CurrentUser(
                 username="Zhang Wei",
                 role="SALES_REP",
                 region_id=1,
                 rep_id=2,
             )
         )
-        start = date(2026, 1, 1)
-        end = date(2026, 1, 31)
+        try:
+            start = date(2026, 1, 1)
+            end = date(2026, 1, 31)
 
-        orders = await service.query_orders(session, rep_id=None, region_id=None, start=start, end=end)
-        assert [order.order_no for order in orders] == ["ORD-EAST-ZHANG"]
+            orders = await service.query_orders(session, rep_id=None, region_id=None, start=start, end=end)
+            assert [order.order_no for order in orders] == ["ORD-EAST-ZHANG"]
 
-        ranking = await service.query_rep_ranking(session, start, end, top_n=10)
-        assert [row.rep_id for row in ranking] == [2]
+            ranking = await service.query_rep_ranking(session, start, end, top_n=10)
+            assert [row.rep_id for row in ranking] == [2]
 
-        regions = await service.query_region_ranking(session, start, end)
-        assert [row.region_id for row in regions] == [1]
-        assert regions[0].total_amount == Decimal("1000.00")
+            regions = await service.query_region_ranking(session, start, end)
+            assert [row.region_id for row in regions] == [1]
+            assert regions[0].total_amount == Decimal("1000.00")
+        finally:
+            reset_current_user(user_token)
 
     await engine.dispose()
 
@@ -60,25 +65,29 @@ async def test_sales_manager_can_only_see_own_region():
         session.add_all(_sample_rows())
         await session.commit()
 
-        service = SalesQueryService(
-            current_user=CurrentUser(
+        service = SalesQueryService()
+        user_token = set_current_user(
+            CurrentUser(
                 username="East Manager",
                 role="SALES_MANAGER",
                 region_id=1,
                 rep_id=1,
             )
         )
-        start = date(2026, 1, 1)
-        end = date(2026, 1, 31)
+        try:
+            start = date(2026, 1, 1)
+            end = date(2026, 1, 31)
 
-        orders = await service.query_orders(session, rep_id=None, region_id=None, start=start, end=end)
-        assert [order.order_no for order in orders] == ["ORD-EAST-ZHANG", "ORD-EAST-WANG"]
+            orders = await service.query_orders(session, rep_id=None, region_id=None, start=start, end=end)
+            assert [order.order_no for order in orders] == ["ORD-EAST-ZHANG", "ORD-EAST-WANG"]
 
-        north_orders = await service.query_orders(session, rep_id=None, region_id=2, start=start, end=end)
-        assert north_orders == []
+            north_orders = await service.query_orders(session, rep_id=None, region_id=2, start=start, end=end)
+            assert north_orders == []
 
-        regions = await service.query_region_ranking(session, start, end)
-        assert [row.region_id for row in regions] == [1]
+            regions = await service.query_region_ranking(session, start, end)
+            assert [row.region_id for row in regions] == [1]
+        finally:
+            reset_current_user(user_token)
 
     await engine.dispose()
 
@@ -94,22 +103,26 @@ async def test_sales_director_can_see_all_company_data():
         session.add_all(_sample_rows())
         await session.commit()
 
-        service = SalesQueryService(
-            current_user=CurrentUser(
+        service = SalesQueryService()
+        user_token = set_current_user(
+            CurrentUser(
                 username="Director",
                 role="SALES_DIRECTOR",
                 region_id=None,
                 rep_id=5,
             )
         )
-        start = date(2026, 1, 1)
-        end = date(2026, 1, 31)
+        try:
+            start = date(2026, 1, 1)
+            end = date(2026, 1, 31)
 
-        orders = await service.query_orders(session, rep_id=None, region_id=None, start=start, end=end)
-        assert [order.order_no for order in orders] == ["ORD-EAST-ZHANG", "ORD-EAST-WANG", "ORD-NORTH-ZHANG"]
+            orders = await service.query_orders(session, rep_id=None, region_id=None, start=start, end=end)
+            assert [order.order_no for order in orders] == ["ORD-EAST-ZHANG", "ORD-EAST-WANG", "ORD-NORTH-ZHANG"]
 
-        regions = await service.query_region_ranking(session, start, end)
-        assert [row.region_id for row in regions] == [2, 1]
+            regions = await service.query_region_ranking(session, start, end)
+            assert [row.region_id for row in regions] == [2, 1]
+        finally:
+            reset_current_user(user_token)
 
     await engine.dispose()
 
@@ -125,29 +138,29 @@ async def test_sales_tools_apply_current_user_permission_scope():
         session.add_all(_sample_rows())
         await session.commit()
 
-        tools = {
-            tool.name: tool
-            for tool in create_sales_tools(
-                session=session,
-                current_user=CurrentUser(
-                    username="East Manager",
-                    role="SALES_MANAGER",
-                    region_id=1,
-                    rep_id=1,
-                ),
+        user_token = set_current_user(
+            CurrentUser(
+                username="East Manager",
+                role="SALES_MANAGER",
+                region_id=1,
+                rep_id=1,
             )
-        }
-
-        text = await tools["query_sales_orders"].ainvoke(
-            {
-                "start_date": "2026-01-01",
-                "end_date": "2026-01-31",
-                "region_name": "华北区",
-                "rep_name": "",
-                "customer_name": "",
-                "limit": 10,
-            }
         )
+        tools = {tool.name: tool for tool in create_sales_tools(session=session)}
+
+        try:
+            text = await tools["query_sales_orders"].ainvoke(
+                {
+                    "start_date": "2026-01-01",
+                    "end_date": "2026-01-31",
+                    "region_name": "华北区",
+                    "rep_name": "",
+                    "customer_name": "",
+                    "limit": 10,
+                }
+            )
+        finally:
+            reset_current_user(user_token)
 
         assert "ORD-NORTH-ZHANG" not in text
         assert "ORD-EAST-ZHANG" not in text
@@ -166,46 +179,46 @@ async def test_sales_rep_summary_tool_rejects_team_and_region_rankings():
         session.add_all(_sample_rows())
         await session.commit()
 
-        tools = {
-            tool.name: tool
-            for tool in create_sales_tools(
-                session=session,
-                current_user=CurrentUser(
-                    username="Zhang Wei",
-                    role="SALES_REP",
-                    region_id=1,
-                    rep_id=2,
-                ),
+        user_token = set_current_user(
+            CurrentUser(
+                username="Zhang Wei",
+                role="SALES_REP",
+                region_id=1,
+                rep_id=2,
             )
-        }
+        )
+        tools = {tool.name: tool for tool in create_sales_tools(session=session)}
 
-        rep_ranking = await tools["calculate_sales_summary"].ainvoke(
-            {
-                "summary_type": "rep_ranking",
-                "start_date": "2026-01-01",
-                "end_date": "2026-01-31",
-                "region_name": "",
-                "top_n": 5,
-            }
-        )
-        region_ranking = await tools["calculate_sales_summary"].ainvoke(
-            {
-                "summary_type": "region_ranking",
-                "start_date": "2026-01-01",
-                "end_date": "2026-01-31",
-                "region_name": "",
-                "top_n": 5,
-            }
-        )
-        product_ranking = await tools["calculate_sales_summary"].ainvoke(
-            {
-                "summary_type": "product_ranking",
-                "start_date": "2026-01-01",
-                "end_date": "2026-01-31",
-                "region_name": "",
-                "top_n": 5,
-            }
-        )
+        try:
+            rep_ranking = await tools["calculate_sales_summary"].ainvoke(
+                {
+                    "summary_type": "rep_ranking",
+                    "start_date": "2026-01-01",
+                    "end_date": "2026-01-31",
+                    "region_name": "",
+                    "top_n": 5,
+                }
+            )
+            region_ranking = await tools["calculate_sales_summary"].ainvoke(
+                {
+                    "summary_type": "region_ranking",
+                    "start_date": "2026-01-01",
+                    "end_date": "2026-01-31",
+                    "region_name": "",
+                    "top_n": 5,
+                }
+            )
+            product_ranking = await tools["calculate_sales_summary"].ainvoke(
+                {
+                    "summary_type": "product_ranking",
+                    "start_date": "2026-01-01",
+                    "end_date": "2026-01-31",
+                    "region_name": "",
+                    "top_n": 5,
+                }
+            )
+        finally:
+            reset_current_user(user_token)
 
         assert "NO_PERMISSION_REP_RANKING" in rep_ranking
         assert "NO_PERMISSION_REGION_RANKING" in region_ranking

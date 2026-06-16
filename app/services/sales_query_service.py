@@ -4,6 +4,7 @@ from decimal import Decimal, ROUND_HALF_UP
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.auth_context import CurrentUser
+from app.core.user_context import get_current_user
 from app.models.product import Product
 from app.models.sales_order import SalesOrder
 from app.models.sales_region import SalesRegion
@@ -28,13 +29,15 @@ class SalesQueryService:
         rep_repository: SalesRepRepository | None = None,
         product_repository: ProductRepository | None = None,
         region_repository: SalesRegionRepository | None = None,
-        current_user: CurrentUser | None = None,
     ) -> None:
         self.order_repository = order_repository or SalesOrderRepository()
         self.rep_repository = rep_repository or SalesRepRepository()
         self.product_repository = product_repository or ProductRepository()
         self.region_repository = region_repository or SalesRegionRepository()
-        self.current_user = current_user
+
+    @property
+    def current_user(self) -> CurrentUser | None:
+        return get_current_user()
 
     async def query_orders(
         self,

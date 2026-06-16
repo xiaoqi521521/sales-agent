@@ -425,8 +425,11 @@ uv run pytest tests/integration/test_agent_api.py tests/integration/test_agent_s
 - `app/schemas/auth.py`
 - `app/core/security.py`
 - `app/core/auth_context.py`
+- `app/core/user_context.py`
 - `app/api/dependencies.py`
+- `app/api/middleware.py`
 - `app/api/v1/endpoints/auth.py`
+- `docs/specs/project/005-contextvars-user-permission-context.md`
 - `tests/integration/test_auth.py`
 - `tests/integration/test_data_permissions.py`
 
@@ -434,8 +437,8 @@ uv run pytest tests/integration/test_agent_api.py tests/integration/test_agent_s
 
 - [x] 定义角色：`SALES_REP`、`SALES_MANAGER`、`SALES_DIRECTOR`。
 - [x] 实现登录接口和 JWT 访问令牌。
-- [x] 在依赖注入中解析当前用户。
-- [x] 在 Service 查询条件中注入权限过滤：销售员只能看自己，主管只能看本大区，总监看全公司。
+- [x] 使用 `contextvars.ContextVar` 建立请求级用户上下文，受保护的 Agent runtime 依赖在认证依赖解析出当前用户后写入上下文，请求结束或异常时必须 reset，避免协程上下文污染。
+- [x] Service 层从用户上下文读取当前用户并注入权限过滤：销售员只能看自己，主管只能看本大区，总监看全公司；不再通过 Runtime -> Tool -> Service 构造参数层层传递 `CurrentUser`。
 - [x] 验证工具层调用同样受权限约束。
 
 **验收命令：**
@@ -449,6 +452,7 @@ uv run pytest tests/integration/test_auth.py tests/integration/test_data_permiss
 - 未登录访问受保护接口返回 401。
 - 越权访问不会泄露数据。
 - 权限过滤发生在 Service 层，Agent 和工具无法绕过。
+- 同步接口、SSE 流式接口、工具独立调用测试均不会出现用户上下文串号；请求完成后用户上下文被清理。
 
 ---
 
